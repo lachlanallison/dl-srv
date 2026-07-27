@@ -1,0 +1,27 @@
+services:
+  dl-srv:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "35778:35778"
+    volumes:
+      # Host paths from .env — see .env.example for TrueNAS layout
+      - ${HOST_MEDIA_PATH:-./data/downloads}:/media
+      - ${HOST_CONFIG_PATH:-./config}:/config
+    env_file:
+      - path: .env
+        required: false
+      - .env.example
+    environment:
+      - DL_SRV_TOKEN=${DL_SRV_TOKEN:-}
+      - ARIA2_RPC_SECRET=${ARIA2_RPC_SECRET:-dl-srv-secret}
+      - DOWNLOAD_DIR=${DOWNLOAD_DIR:-/media}
+      - CONFIG_DIR=${CONFIG_DIR:-/config}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:35778/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped

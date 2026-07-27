@@ -1,0 +1,36 @@
+[package]
+name = "dlsrv"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Remote download inbox for your NAS — HTTP, torrents, and video sites"
+repository = "https://github.com/lachlanallison/dl-srv"
+homepage = "https://github.com/lachlanallison/dl-srv"
+
+[dependencies]
+anyhow = "1.0"
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["form", "multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+hex = "0.4"
+rand = "0.8"
+regex = "1.11"
+reqwest = { version = "0.12", features = ["json"] }
+rss = "2.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

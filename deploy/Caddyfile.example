@@ -1,0 +1,37 @@
+# Example Caddy reverse proxy for dl-srv
+# Replace dl-srv.example.com and paths as needed.
+
+dl-srv.example.com {
+	encode gzip
+
+	# Optional: basic auth in front of the UI (dl-srv still uses its own API token)
+	# basicauth {
+	# 	admin $2a$14$...bcrypt_hash...
+	# }
+
+	reverse_proxy dl-srv:35778 {
+		# SSE task stream — disable buffering
+		flush_interval -1
+	}
+
+	# Optional: restrict to LAN
+	# @lan remote_ip 192.168.0.0/16 10.0.0.0/8
+	# handle @lan {
+	# 	reverse_proxy dl-srv:35778
+	# }
+	# respond "Forbidden" 403
+}
+
+# Docker Compose: add Caddy service and put dl-srv on an internal network:
+#
+# services:
+#   caddy:
+#     image: caddy:2-alpine
+#     ports:
+#       - "443:443"
+#       - "80:80"
+#     volumes:
+#       - ./deploy/Caddyfile:/etc/caddy/Caddyfile
+#       - caddy_data:/data
+#     depends_on:
+#       - dl-srv

@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>dl-srv</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0.75rem; width: 300px; }
+      button { width: 100%; margin-top: 0.5rem; padding: 0.45rem; cursor: pointer; }
+      button.primary { font-weight: 600; }
+      .muted { color: #666; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <strong>dl-srv</strong>
+    <p class="muted" id="status">Checking server…</p>
+    <button id="send" class="primary">Send current tab URL</button>
+    <button id="open">Open web UI</button>
+    <button id="options">Extension settings</button>
+    <script src="shared.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

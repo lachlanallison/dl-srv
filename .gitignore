@@ -1,0 +1,21 @@
+# Rust
+/target/
+/server/target/
+
+# Web
+web/node_modules/
+web/dist/
+web/.svelte-kit/
+
+# Local dev data
+/config/
+/data/
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
