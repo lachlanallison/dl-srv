@@ -8,7 +8,7 @@ ARIA2_RPC_PORT="${ARIA2_RPC_PORT:-6800}"
 
 mkdir -p "$DOWNLOAD_DIR" "$CONFIG_DIR"
 
-if ! aria2c \
+aria2c \
   --enable-rpc \
   --rpc-listen-port="$ARIA2_RPC_PORT" \
   --rpc-listen-all=false \
@@ -18,7 +18,10 @@ if ! aria2c \
   --max-concurrent-downloads=5 \
   --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
   --log-level=error &
-then
+ARIA2_PID=$!
+
+sleep 1
+if ! kill -0 "$ARIA2_PID" 2>/dev/null; then
   echo "aria2c failed to start" >&2
   exit 1
 fi
