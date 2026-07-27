@@ -5,7 +5,7 @@ const ext = typeof globalThis.browser !== 'undefined' ? globalThis.browser : glo
 const DEBUG_MAX = 80
 
 const DEFAULTS = {
-  serverUrl: 'http://192.168.1.100:35778',
+  serverUrl: '',
   token: '',
   category: 'inbox',
   enabled: true,
@@ -109,31 +109,112 @@ function formatHttpError(status, url, body) {
   return `HTTP ${status} from ${url}${snippet ? `: ${snippet}` : ''}`
 }
 
+function extensionVersion() {
+  try {
+    return ext.runtime.getManifest().version
+  } catch {
+    return ''
+  }
+}
+
+async function backgroundFetch(settings, path, init = {}) {
+  if (!ext.runtime?.sendMessage) return null
+  try {
+    const result = await ext.runtime.sendMessage({
+      type: 'dlsrv-fetch',
+      serverUrl: settings.serverUrl,
+      path,
+      method: init.method || 'GET',
+      headers: init.headers || {},
+      body: init.body,
+    })
+    if (result === undefined) {
+      await debugLog('warn', 'Background script did not respond — reload the extension')
+      return null
+    }
+    return result
+  } catch (e) {
+    const msg = String(e.message || e)
+    if (msg.includes('Could not establish connection') || msg.includes('Receiving end does not exist')) {
+      await debugLog('warn', 'Background script unavailable — reload the extension', msg)
+      return null
+    }
+    throw e
+  }
+}
+
 async function apiFetch(settings, path, init = {}) {
   const url = apiUrl(settings, path)
   await debugLog('info', `${init.method || 'GET'} ${url}`, init.body ? JSON.parse(init.body) : null)
+
+  const bg = await backgroundFetch(settings, path, init)
+  if (bg) {
+    if (bg.error) {
+      await debugLog('error', 'Network error (background)', { url, error: bg.error })
+      throw new Error(
+        `Cannot reach server at ${url}. (${bg.error}) Check: dl-srv is running, URL is http://YOUR-NAS-IP:35778, same network, no typo.`,
+      )
+    }
+    await debugLog(bg.ok ? 'info' : 'error', `HTTP ${bg.status} (background)`, {
+      url: bg.url || url,
+      body: (bg.text || '').slice(0, 500),
+    })
+    return {
+      res: { ok: bg.ok, status: bg.status },
+      url: bg.url || url,
+      text: bg.text || '',
+    }
+  }
+
   let res
   try {
+    await debugLog('info', 'Trying direct fetch from extension page', { url })
     res = await fetch(url, init)
   } catch (e) {
     const msg = String(e.message || e)
-    await debugLog('error', 'Network error', { url, error: msg })
-    throw new Error(
-      `Cannot reach server at ${url}. (${msg}) Check: dl-srv is running, URL is http://YOUR-NAS-IP:35778, same network, no typo.`,
-    )
+    await debugLog('error', 'Network error (direct)', { url, error: msg })
+      throw new Error(
+        `Cannot reach server at ${url}. (${msg}) Check the IP is correct (PowerShell test used a different host?), dl-srv is running, and Firefox proxy is off.`,
+      )
   }
   const text = await res.text()
-  await debugLog(res.ok ? 'info' : 'error', `HTTP ${res.status}`, { url, body: text.slice(0, 500) })
+  await debugLog(res.ok ? 'info' : 'error', `HTTP ${res.status} (direct)`, { url, body: text.slice(0, 500) })
   return { res, url, text }
+}
+
+async function cookiesForUrls(...urls) {
+  if (!ext.cookies?.getAll) return ''
+  const seen = new Set()
+  const parts = []
+  for (const url of urls) {
+    if (!url) continue
+    try {
+      const list = await ext.cookies.getAll({ url })
+      for (const c of list) {
+        const key = `${c.name}\0${c.domain}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        parts.push(`${c.name}=${c.value}`)
+      }
+    } catch (e) {
+      console.warn('[dl-srv] cookies.getAll', url, e)
+    }
+  }
+  return parts.join('; ')
 }
 
 async function postTask(payload) {
   const settings = await getSettings()
   if (!settings.token) throw new Error('Set API token in extension options')
+  const urls = [payload.url, payload.referer].filter(Boolean)
+  const cookies =
+    payload.cookies !== undefined ? payload.cookies : await cookiesForUrls(...urls)
   const body = {
     ...payload,
     category: payload.category || settings.category || 'inbox',
   }
+  if (cookies) body.cookies = cookies
+  else delete body.cookies
   if (settings.autoForceYtdlp && body.force_ytdlp === undefined) {
     body.force_ytdlp = true
   }
@@ -164,7 +245,7 @@ async function pingServer() {
     if (!settings.token) {
       setBadge('?')
       await debugLog('warn', 'No API token configured')
-      return { ok: false, error: 'No API token' }
+      return { ok: false, error: 'No API token — paste the token from dl-srv setup and click Save' }
     }
     const { res, url, text } = await apiFetch(settings, '/health', {
       headers: { Authorization: `Bearer ${settings.token}` },
@@ -245,9 +326,11 @@ function notify(title, message) {
 globalThis.dlsrv = {
   ext,
   DEFAULTS,
+  extensionVersion,
   getSettings,
   saveSettings,
   apiUrl,
+  normalizeServerUrl,
   apiFetch,
   postTask,
   pingServer,

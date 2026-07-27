@@ -40,6 +40,10 @@
 
   let queueFilter = 'all'
 
+  let queueLoading = false
+
+  let addingDownload = false
+
 
 
   // Setup wizard
@@ -166,7 +170,17 @@
 
   async function refreshTasks() {
 
-    tasks = await api.listTasks(queueFilter)
+    queueLoading = true
+
+    try {
+
+      tasks = await api.listTasks(queueFilter)
+
+    } finally {
+
+      queueLoading = false
+
+    }
 
   }
 
@@ -226,29 +240,53 @@
 
 
 
+  let sseFlush = null
+
+  function flushSseUpdates(pending) {
+
+    const idx = tasks.findIndex((t) => t.id === pending.id)
+
+    if (taskMatchesFilter(pending, queueFilter)) {
+
+      if (idx >= 0) tasks[idx] = pending
+
+      else tasks = [pending, ...tasks]
+
+    } else if (idx >= 0) {
+
+      tasks = tasks.filter((t) => t.id !== pending.id)
+
+    }
+
+    tasks = [...tasks]
+
+  }
+
+
+
   async function connectEvents() {
 
     if (unsubscribe) unsubscribe()
 
     if (!getToken()) return
 
+    const pending = new Map()
+
     unsubscribe = api.events((task) => {
 
-      const idx = tasks.findIndex((t) => t.id === task.id)
+      pending.set(task.id, task)
 
-      if (taskMatchesFilter(task, queueFilter)) {
+      if (sseFlush) return
 
-        if (idx >= 0) tasks[idx] = task
+      sseFlush = setTimeout(() => {
 
-        else tasks = [task, ...tasks]
+        sseFlush = null
 
-      } else if (idx >= 0) {
+        for (const t of pending.values()) flushSseUpdates(t)
 
-        tasks = tasks.filter((t) => t.id !== task.id)
+        pending.clear()
 
-      }
-
-      tasks = [...tasks]
+      }, 250)
 
     })
 
@@ -346,37 +384,45 @@
 
   async function addDownload() {
 
-    if (!url.trim()) return
+    if (!url.trim() || addingDownload) return
 
     setError('')
 
+    addingDownload = true
+
+    const payload = {
+
+      url: url.trim(),
+
+      referer: referer.trim() || undefined,
+
+      category: category || settingsForm.default_category || 'inbox',
+
+      force_ytdlp: forceYtdlp,
+
+      quality: quality || undefined,
+
+    }
+
+    url = ''
+
+    referer = ''
+
+    tab = 'queue'
+
     try {
 
-      const task = await api.createTask({
-
-        url: url.trim(),
-
-        referer: referer.trim() || undefined,
-
-        category: category || settingsForm.default_category || 'inbox',
-
-        force_ytdlp: forceYtdlp,
-
-        quality: quality || undefined,
-
-      })
+      const task = await api.createTask(payload)
 
       if (taskMatchesFilter(task, queueFilter)) tasks = [task, ...tasks]
-
-      url = ''
-
-      referer = ''
-
-      tab = 'queue'
 
     } catch (e) {
 
       setError(e)
+
+    } finally {
+
+      addingDownload = false
 
     }
 
@@ -740,7 +786,7 @@
 
           </div>
 
-          <button onclick={refresh}>Refresh</button>
+          <button onclick={refresh} disabled={queueLoading}>{queueLoading ? 'Loading…' : 'Refresh'}</button>
 
         </div>
 
@@ -866,7 +912,7 @@
 
         </label>
 
-        <button class="primary" onclick={addDownload}>Start download</button>
+        <button class="primary" disabled={addingDownload} onclick={addDownload}>{addingDownload ? 'Adding…' : 'Start download'}</button>
 
       </div>
 
@@ -1085,6 +1131,14 @@
         <button onclick={refresh}>Refresh health</button>
 
         {#if health}
+
+          <div class="health-item">
+
+            <strong>dl-srv</strong>
+
+            <div class="mono">{health.dlsrv_version}</div>
+
+          </div>
 
           <div class="health-item">
 

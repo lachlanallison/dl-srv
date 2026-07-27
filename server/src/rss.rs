@@ -77,6 +77,7 @@ impl RssPoller {
                 url: link,
                 category: feed.category.clone(),
                 referer: Some(feed.url.clone()),
+                cookies: None,
                 force_ytdlp: false,
                 quality: None,
                 source: Some(format!("rss:{}", feed.id)),

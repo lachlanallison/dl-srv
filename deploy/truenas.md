@@ -74,6 +74,20 @@ docker compose up --build -d
 
 Open **http://&lt;truenas-ip&gt;:35778** → save the API token from the setup wizard.
 
+### Can't reach the server?
+
+A **NetworkError** (not 401) means nothing is listening on port 35778 — the container is probably stopped or crash-looping.
+
+```bash
+cd /mnt/apps/dl-srv/src
+sudo docker compose ps
+sudo docker compose logs --tail=80
+```
+
+- **Container not running** → check logs; common cause is dl-srv starting before aria2 is ready (fixed in recent builds with startup retry).
+- **`http://<ip>:35778/`** should load the web UI. `/api/v1/health` returns **401** without a token — that is normal and means the server is up.
+- **Port blocked** → TrueNAS firewall or another app using 35778. Try `curl -v http://127.0.0.1:35778/` on the NAS shell.
+
 ## 4. Web UI
 
 | Tab | Action |

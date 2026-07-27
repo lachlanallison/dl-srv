@@ -324,6 +324,7 @@ async fn torrents_add(
             url: url.trim().to_string(),
             category: category.clone(),
             referer: None,
+            cookies: None,
             force_ytdlp: false,
             quality: None,
             source: Some("qbit".into()),

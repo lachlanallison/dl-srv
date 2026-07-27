@@ -22,6 +22,7 @@ pub struct DownloadOpts<'a> {
     pub output_dir: &'a Path,
     pub referer: Option<&'a str>,
     pub quality: Option<&'a str>,
+    pub cookie_header: Option<&'a str>,
 }
 
 pub struct Progress {
@@ -161,6 +162,12 @@ impl YtdlpRunner {
 
         if let Some(r) = opts.referer {
             cmd.arg("--referer").arg(r);
+        }
+
+        if let Some(c) = opts.cookie_header {
+            if !c.is_empty() {
+                cmd.arg("--add-header").arg(format!("Cookie: {c}"));
+            }
         }
 
         if let Some(ref cookies) = self.cookies_file {

@@ -29,6 +29,9 @@ pub fn classify_sync(url: &str, force_ytdlp: bool) -> TaskType {
     if lower.starts_with("magnet:") || is_torrent_url(&lower) {
         return TaskType::Aria2;
     }
+    if is_direct_file_url(&lower) {
+        return TaskType::Aria2;
+    }
     for host in VIDEO_HOSTS {
         if lower.contains(host) {
             return TaskType::Ytdlp;
@@ -42,12 +45,28 @@ pub async fn classify(url: &str, force_ytdlp: bool, runner: Option<&YtdlpRunner>
     if sync != TaskType::Aria2 {
         return sync;
     }
+    let lower = url.trim().to_ascii_lowercase();
+    if is_direct_file_url(&lower) {
+        return TaskType::Aria2;
+    }
     if let Some(r) = runner {
         if r.simulate(url).await.unwrap_or(false) {
             return TaskType::Ytdlp;
         }
     }
     TaskType::Aria2
+}
+
+pub fn is_direct_file_url(lower: &str) -> bool {
+    const EXTS: &[&str] = &[
+        ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts",
+        ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz",
+        ".pdf", ".epub", ".mobi",
+        ".mp3", ".flac", ".wav", ".aac", ".ogg",
+        ".iso", ".img",
+    ];
+    let path = lower.split('?').next().unwrap_or(lower);
+    EXTS.iter().any(|ext| path.ends_with(ext))
 }
 
 fn is_torrent_url(lower: &str) -> bool {

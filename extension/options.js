@@ -9,6 +9,7 @@
   }
 
   const {
+    extensionVersion,
     getSettings,
     saveSettings,
     parseCommaList,
@@ -43,6 +44,7 @@
   }
 
   async function load() {
+    document.getElementById('extVersion').textContent = extensionVersion() || 'unknown'
     const data = await getSettings()
     document.getElementById('serverUrl').value = data.serverUrl || ''
     document.getElementById('token').value = data.token || ''
@@ -80,7 +82,11 @@
       const result = await testConnection()
       await refreshDebugLog()
       if (result.ok) {
-        status.textContent = `OK — ${healthUrl}`
+        const h = result.data || {}
+        const parts = [`OK — ${healthUrl}`]
+        if (h.dlsrv_version) parts.push(`dl-srv ${h.dlsrv_version}`)
+        if (h.aria2_ok) parts.push(`aria2 ${h.aria2_version || 'connected'}`)
+        status.textContent = parts.join(' · ')
         status.className = 'ok'
       } else {
         status.textContent = result.error || 'Failed'

@@ -113,6 +113,7 @@ pub struct AddTaskInput {
     pub url: String,
     pub category: String,
     pub referer: Option<String>,
+    pub cookies: Option<String>,
     pub force_ytdlp: bool,
     pub quality: Option<String>,
     pub source: Option<String>,

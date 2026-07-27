@@ -47,7 +47,7 @@ pub async fn run() -> anyhow::Result<()> {
     let store = Store::open(&db_path).context("open sqlite")?;
 
     let aria2 = Aria2Client::new(cfg.aria2_rpc_url.clone(), cfg.aria2_rpc_secret.clone());
-    aria2.ping().await.context("aria2 not reachable — is aria2c running?")?;
+    wait_for_aria2(&aria2).await.context("aria2 not reachable — is aria2c running?")?;
 
     let (events, _) = broadcast::channel(256);
     let version_checker = Arc::new(VersionChecker::new(
@@ -147,4 +147,17 @@ fn web_dist_dir() -> PathBuf {
         return PathBuf::from(p);
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../web/dist")
+}
+
+async fn wait_for_aria2(aria2: &Aria2Client) -> anyhow::Result<()> {
+    for attempt in 0..30 {
+        if aria2.ping().await.is_ok() {
+            return Ok(());
+        }
+        if attempt == 29 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    anyhow::bail!("aria2 not reachable after 6s")
 }

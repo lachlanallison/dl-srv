@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -36,6 +37,7 @@ pub struct Manager {
     events: broadcast::Sender<Task>,
     version_checker: Arc<VersionChecker>,
     ytdlp_jobs: Arc<YtdlpJobRegistry>,
+    task_cookies: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
 impl Manager {
@@ -53,6 +55,7 @@ impl Manager {
             events,
             version_checker,
             ytdlp_jobs: Arc::new(YtdlpJobRegistry::new()),
+            task_cookies: Arc::new(std::sync::Mutex::new(HashMap::new())),
         })
     }
 
@@ -100,7 +103,6 @@ impl Manager {
     }
 
     pub async fn add_task(self: &Arc<Self>, input: AddTaskInput) -> Result<Task> {
-        let runner = self.ytdlp_runner().await;
         let cfg = self.cfg.read().await;
         let category = if input.category.is_empty() {
             cfg.default_category.clone()
@@ -111,18 +113,78 @@ impl Manager {
         let save_path = save_dir.to_string_lossy().into_owned();
         drop(cfg);
 
-        let task_type = router::classify(&input.url, input.force_ytdlp, Some(&runner)).await;
-
-        let mut task = self
+        let task_type = router::classify_sync(&input.url, input.force_ytdlp);
+        let task = self
             .store
             .lock()
             .unwrap()
             .create_task(&input, task_type, &save_path)?;
+        self.emit(&task);
+
+        let task_id = task.id.clone();
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(e) = this.start_task(task_id.clone(), input).await {
+                error!(task_id = %task_id, err = %e, "start task failed");
+                if let Ok(mut t) = this.store.lock().unwrap().get_task(&task_id) {
+                    t.status = TaskStatus::Failed;
+                    t.error = Some(e.to_string());
+                    t.updated_at = Utc::now();
+                    let _ = this.save_and_emit(&t);
+                }
+            }
+        });
+
+        Ok(task)
+    }
+
+    async fn start_task(self: &Arc<Self>, task_id: String, input: AddTaskInput) -> Result<()> {
+        let runner = self.ytdlp_runner().await;
+        let cookies = input
+            .cookies
+            .as_ref()
+            .filter(|c| !c.trim().is_empty())
+            .map(|c| c.trim().to_string());
+
+        let lower = input.url.trim().to_ascii_lowercase();
+        let mut task_type = router::classify_sync(&input.url, input.force_ytdlp);
+        if task_type == TaskType::Aria2 && !router::is_direct_file_url(&lower) {
+            task_type = match tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                router::classify(&input.url, input.force_ytdlp, Some(&runner)),
+            )
+            .await
+            {
+                Ok(t) => t,
+                Err(_) => TaskType::Aria2,
+            };
+        }
+
+        let mut task = self.store.lock().unwrap().get_task(&task_id)?;
+        if task.task_type != task_type {
+            task.task_type = task_type;
+            task.updated_at = Utc::now();
+            self.save_and_emit(&task)?;
+        }
+
+        if let Some(ref c) = cookies {
+            if task_type == TaskType::Ytdlp {
+                self.task_cookies
+                    .lock()
+                    .unwrap()
+                    .insert(task_id.clone(), c.clone());
+            }
+        }
 
         match task_type {
             TaskType::Aria2 => {
-                if let Err(e) = self.start_aria2_task(&mut task).await {
-                    if runner.simulate(&task.url).await.unwrap_or(false) {
+                if let Err(e) = self.start_aria2_task(&mut task, cookies.clone()).await {
+                    if !router::is_direct_file_url(&lower)
+                        && runner.simulate(&input.url).await.unwrap_or(false)
+                    {
+                        if let Some(c) = cookies {
+                            self.task_cookies.lock().unwrap().insert(task_id, c);
+                        }
                         task.task_type = TaskType::Ytdlp;
                         task.updated_at = Utc::now();
                         self.save_and_emit(&task)?;
@@ -138,7 +200,7 @@ impl Manager {
             }
         }
 
-        Ok(task)
+        Ok(())
     }
 
     fn spawn_ytdlp(self: &Arc<Self>, task_id: String) {
@@ -156,46 +218,40 @@ impl Manager {
         });
     }
 
-    async fn start_aria2_task(&self, task: &mut Task) -> Result<()> {
+    async fn start_aria2_task(
+        &self,
+        task: &mut Task,
+        cookies: Option<String>,
+    ) -> Result<()> {
         let cfg = self.cfg.read().await;
         let dir = cfg.category_dir(&task.category).to_string_lossy().into_owned();
         let referer = infer_referer(&task.url, task.referer.clone());
         drop(cfg);
 
         let lower = task.url.trim().to_ascii_lowercase();
+        let filename = if router::is_direct_file_url(&lower) {
+            filename_from_url(&task.url)
+        } else {
+            None
+        };
+
+        let opts = |referer: Option<String>| AddOptions {
+            dir: dir.clone(),
+            referer,
+            filename: filename.clone(),
+            cookies: cookies.clone(),
+        };
+
         let gid = if lower.starts_with("magnet:") {
             self.aria2
-                .add_uri(
-                    vec![task.url.clone()],
-                    AddOptions {
-                        dir,
-                        referer,
-                        filename: None,
-                    },
-                )
+                .add_uri(vec![task.url.clone()], opts(referer))
                 .await?
         } else if is_torrent_url(&lower) {
             let b64 = fetch_torrent_b64(&task.url).await?;
-            self.aria2
-                .add_torrent(
-                    &b64,
-                    AddOptions {
-                        dir,
-                        referer,
-                        filename: None,
-                    },
-                )
-                .await?
+            self.aria2.add_torrent(&b64, opts(referer)).await?
         } else {
             self.aria2
-                .add_uri(
-                    vec![task.url.clone()],
-                    AddOptions {
-                        dir,
-                        referer,
-                        filename: None,
-                    },
-                )
+                .add_uri(vec![task.url.clone()], opts(referer))
                 .await?
         };
 
@@ -207,6 +263,8 @@ impl Manager {
     }
 
     async fn run_ytdlp(self: &Arc<Self>, task_id: &str) -> Result<()> {
+        let cookie_header = self.task_cookies.lock().unwrap().remove(task_id);
+
         let (url, referer, output_dir, quality, runner) = {
             let task = self.store.lock().unwrap().get_task(task_id)?;
             let cfg = self.cfg.read().await;
@@ -247,6 +305,7 @@ impl Manager {
                     output_dir: &output_dir,
                     referer: referer.as_deref(),
                     quality: quality.as_deref(),
+                    cookie_header: cookie_header.as_deref(),
                 },
                 Some(&registry),
                 Some(task_id),
@@ -406,9 +465,22 @@ fn infer_referer(url: &str, referer: Option<String>) -> Option<String> {
     if referer.is_some() {
         return referer;
     }
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("akirabox.") {
+        return Some("https://akirabox.to/".into());
+    }
     url::Url::parse(url.trim())
         .ok()
         .map(|u| format!("{}/", u.origin().ascii_serialization()))
+}
+
+fn filename_from_url(url: &str) -> Option<String> {
+    let path = url.trim().split('?').next()?;
+    let name = path.rsplit('/').next()?;
+    if name.is_empty() || !name.contains('.') {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 fn is_torrent_url(lower: &str) -> bool {

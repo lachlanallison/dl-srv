@@ -20,6 +20,7 @@ pub struct BinaryInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthReport {
+    pub dlsrv_version: String,
     pub aria2_ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aria2_version: Option<String>,
@@ -56,6 +57,7 @@ impl VersionChecker {
         }
 
         let mut report = HealthReport {
+            dlsrv_version: env!("CARGO_PKG_VERSION").to_string(),
             aria2_ok: false,
             aria2_version: None,
             binaries: vec![],

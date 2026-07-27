@@ -7,7 +7,8 @@
     return
   }
 
-  const { ext, getSettings, postTask, pingServer, extOf, hostOf, notify } = globalThis.dlsrv
+  const { ext, getSettings, postTask, pingServer, extOf, hostOf, notify, normalizeServerUrl } =
+    globalThis.dlsrv
 
   if (ext.downloads?.onCreated) {
     ext.downloads.onCreated.addListener(async (item) => {
@@ -63,8 +64,10 @@
     try {
       const target = info.menuItemId === 'dlsrv-link' ? info.linkUrl : info.pageUrl
       if (!target) return
+      const referer = info.pageUrl || undefined
       await postTask({
         url: target,
+        referer,
         force_ytdlp: info.menuItemId === 'dlsrv-page',
       })
     } catch (e) {
@@ -80,4 +83,37 @@
     console.warn('[dl-srv] alarm create', e)
   })
   pingServer().catch((e) => console.warn('[dl-srv] initial ping', e))
+
+  ext.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg.type === 'dlsrv-ping') {
+      ;(async () => {
+        sendResponse(await pingServer())
+      })()
+      return true
+    }
+    if (msg.type !== 'dlsrv-fetch') return undefined
+    ;(async () => {
+      try {
+        const settings = await getSettings()
+        const base = normalizeServerUrl(msg.serverUrl || settings.serverUrl)
+        if (!base) {
+          sendResponse({ error: 'Set server URL in extension options' })
+          return
+        }
+        const url = `${base}/api/v1${msg.path}`
+        console.log('[dl-srv] background fetch', url)
+        const res = await fetch(url, {
+          method: msg.method || 'GET',
+          headers: msg.headers || {},
+          body: msg.body,
+        })
+        const text = await res.text()
+        sendResponse({ ok: res.ok, status: res.status, url, text })
+      } catch (e) {
+        console.error('[dl-srv] background fetch failed', e)
+        sendResponse({ error: String(e.message || e) })
+      }
+    })()
+    return true
+  })
 })()

@@ -16,10 +16,10 @@ aria2c \
   --continue=true \
   --max-concurrent-downloads=5 \
   --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
-  --log=- \
-  --log-level=warn &
+  --log-level=error &
 
 export ARIA2_RPC_URL="http://127.0.0.1:${ARIA2_RPC_PORT}/jsonrpc"
 export ARIA2_RPC_SECRET="$ARIA2_RPC_SECRET"
 
+sleep 1
 exec /usr/local/bin/dlsrv

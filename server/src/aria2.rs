@@ -57,11 +57,16 @@ pub struct AddOptions {
     pub dir: String,
     pub referer: Option<String>,
     pub filename: Option<String>,
+    pub cookies: Option<String>,
 }
 
 fn download_options(opts: AddOptions) -> Value {
     let mut options = json!({ "dir": opts.dir });
-    options["header"] = json!([format!("User-Agent: {BROWSER_UA}")]);
+    let mut headers = vec![format!("User-Agent: {BROWSER_UA}")];
+    if let Some(c) = opts.cookies.filter(|c| !c.is_empty()) {
+        headers.push(format!("Cookie: {c}"));
+    }
+    options["header"] = json!(headers);
     if let Some(r) = opts.referer {
         options["referer"] = json!(r);
     }
@@ -134,7 +139,7 @@ impl Aria2Client {
     }
 
     pub async fn add_torrent(&self, torrent_b64: &str, opts: AddOptions) -> Result<String> {
-        let options = json!({ "dir": opts.dir });
+        let options = download_options(opts);
         let result = self
             .call(
                 "aria2.addTorrent",
