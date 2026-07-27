@@ -150,14 +150,14 @@ fn web_dist_dir() -> PathBuf {
 }
 
 async fn wait_for_aria2(aria2: &Aria2Client) -> anyhow::Result<()> {
-    for attempt in 0..30 {
+    for attempt in 0..100 {
         if aria2.ping().await.is_ok() {
             return Ok(());
         }
-        if attempt == 29 {
+        if attempt == 99 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
-    anyhow::bail!("aria2 not reachable after 6s")
+    anyhow::bail!("aria2 not reachable after 20s")
 }

@@ -18,7 +18,7 @@ ENV WEB_DIST=/app/web/dist
 RUN cargo build --release
 
 FROM alpine:3.21
-RUN apk add --no-cache aria2 ffmpeg python3 py3-pip ca-certificates \
+RUN apk add --no-cache aria2 ffmpeg python3 py3-pip ca-certificates wget \
   && pip3 install --break-system-packages --upgrade pip yt-dlp
 
 COPY --from=server /app/server/target/release/dlsrv /usr/local/bin/dlsrv
