@@ -2,20 +2,30 @@
 
 Sends browser downloads (and the current tab URL) to your [dl-srv](../README.md) NAS instead of downloading locally.
 
-## Chrome / Edge (Chromium)
+**Privacy:** URLs and cookies (when needed) are sent only to the server URL you configure. See [PRIVACY.md](PRIVACY.md).
 
-1. Open `chrome://extensions` (or `edge://extensions`)
-2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select this `extension/` folder — copy `manifest.chromium.json` over `manifest.json` first (repo default is Firefox)
-
-## Firefox
+## Firefox (development)
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click **Load Temporary Add-on…**
-3. Choose `extension/manifest.json` in this folder
+3. Choose `extension/manifest.json`
 
-   `manifest.json` is currently the Firefox manifest. For Chrome, copy `manifest.chromium.json` over `manifest.json` first.
+## Firefox (Mozilla Add-ons)
+
+See [AMO_SUBMISSION.md](AMO_SUBMISSION.md) for store packaging, listing text, and reviewer notes.
+
+```bash
+cd extension
+npm install
+npm run lint
+npm run build:amo
+# Upload dist/dl-srv-firefox.zip to addons.mozilla.org
+```
+
+## Chrome / Edge (Chromium)
+
+1. Copy `manifest.chromium.json` over `manifest.json`
+2. Open `chrome://extensions` → **Load unpacked** → select this folder
 
 ## Configuration
 
@@ -26,7 +36,8 @@ Open extension **Options** (right-click toolbar icon → Options):
 | Server URL | dl-srv base URL, e.g. `http://192.168.1.50:35778` |
 | API token | From first-run setup or `config/config.json` |
 | Default category | Subfolder for downloads (`movies`, `tv`, `inbox`, …) |
-| Intercept downloads | Cancel local download and queue on NAS |
+| Intercept downloads | Pause local download and ask NAS vs browser |
+| Ask category when intercepting | Category prompt on each intercept |
 | Auto force yt-dlp | Use yt-dlp for intercepted links |
 | Min file size | Skip files smaller than N bytes |
 | Ignore extensions | Comma list, e.g. `html, htm, txt` |

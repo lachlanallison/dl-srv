@@ -94,6 +94,10 @@
 
   let unsubscribe = null
 
+  let queuePoll = null
+
+  const QUEUE_POLL_MS = 4000
+
 
 
   function taskMatchesFilter(task, filter) {
@@ -294,6 +298,38 @@
 
 
 
+  function startQueuePoll() {
+
+    stopQueuePoll()
+
+    queuePoll = setInterval(() => {
+
+      if (tab === 'queue' && getToken() && !showSetup) {
+
+        refreshTasks().catch(() => {})
+
+      }
+
+    }, QUEUE_POLL_MS)
+
+  }
+
+
+
+  function stopQueuePoll() {
+
+    if (queuePoll) {
+
+      clearInterval(queuePoll)
+
+      queuePoll = null
+
+    }
+
+  }
+
+
+
   async function saveToken() {
 
     setToken(token)
@@ -301,6 +337,8 @@
     await refresh()
 
     await connectEvents()
+
+    startQueuePoll()
 
   }
 
@@ -636,6 +674,8 @@
 
     else if (!inSetup) await refresh()
 
+    startQueuePoll()
+
   })
 
 
@@ -643,6 +683,8 @@
   onDestroy(() => {
 
     if (unsubscribe) unsubscribe()
+
+    stopQueuePoll()
 
   })
 

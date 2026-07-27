@@ -35,6 +35,7 @@
       token: document.getElementById('token').value.trim(),
       category: document.getElementById('category').value.trim() || 'inbox',
       enabled: document.getElementById('enabled').checked,
+      askOnIntercept: document.getElementById('askOnIntercept').checked,
       autoForceYtdlp: document.getElementById('autoForceYtdlp').checked,
       minSize: parseInt(document.getElementById('minSize').value, 10) || 0,
       ignoreExt: parseCommaList(document.getElementById('ignoreExt').value),
@@ -50,6 +51,7 @@
     document.getElementById('token').value = data.token || ''
     document.getElementById('category').value = data.category || 'inbox'
     document.getElementById('enabled').checked = data.enabled !== false
+    document.getElementById('askOnIntercept').checked = data.askOnIntercept !== false
     document.getElementById('autoForceYtdlp').checked = !!data.autoForceYtdlp
     document.getElementById('minSize').value = data.minSize ?? 0
     document.getElementById('ignoreExt').value = commaList(data.ignoreExt)

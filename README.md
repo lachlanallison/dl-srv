@@ -70,7 +70,7 @@ Create config before first run: `mkdir -p /mnt/apps/dl-srv/config`
 
 
 
-See [extension/README.md](extension/README.md) for Chrome and Firefox install steps.
+See [extension/README.md](extension/README.md) for Chrome and Firefox install steps. For Mozilla Add-ons submission, see [extension/AMO_SUBMISSION.md](extension/AMO_SUBMISSION.md).
 
 
 

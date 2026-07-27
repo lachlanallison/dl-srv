@@ -44,6 +44,7 @@
       <div class="hint">Subfolder under your media root — e.g. <code>movies</code>, <code>tv</code>. Default <code>inbox</code> is a catch-all staging folder; change this to match your Jellyfin libraries.</div>
     </label>
     <label><input id="enabled" type="checkbox" /> Intercept browser downloads</label>
+    <label><input id="askOnIntercept" type="checkbox" checked /> Ask category when intercepting (or send back to browser)</label>
     <label><input id="autoForceYtdlp" type="checkbox" /> Auto force yt-dlp for intercepted downloads</label>
     <label>
       Min file size (bytes, 0 = all)
@@ -57,7 +58,14 @@
       Ignore domains (comma-separated)
       <input id="ignoreDomains" type="text" placeholder="example.com" />
     </label>
-    <label><input id="debugEnabled" type="checkbox" checked /> Keep debug log (last 80 requests)</label>
+    <label><input id="debugEnabled" type="checkbox" checked /> Keep debug log (last 80 requests, stored locally only)</label>
+
+    <h2>Data transmission</h2>
+    <p class="hint">
+      This extension sends download URLs — and site cookies when needed for authenticated hosts — <strong>only to the dl-srv server URL you configure above</strong>.
+      Nothing is sent to the extension developer or any third party. Settings and the debug log stay on this device.
+      <a href="https://github.com/lachlanallison/dl-srv/blob/main/extension/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a>
+    </p>
 
     <div class="row">
       <button id="save">Save</button>

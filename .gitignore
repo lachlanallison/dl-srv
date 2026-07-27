@@ -7,6 +7,11 @@ web/node_modules/
 web/dist/
 web/.svelte-kit/
 
+# Extension (AMO build)
+extension/node_modules/
+extension/dist/
+extension/AMO_SUBMISSION.md
+
 # Local dev data
 /config/
 /data/

@@ -75,31 +75,54 @@ export const api = {
 
 function subscribeEvents(token, onTask) {
   let closed = false
-  ;(async () => {
-    const res = await fetch('/api/v1/events', {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-    })
-    if (!res.ok || !res.body) return
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (!closed) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const parts = buffer.split('\n\n')
-      buffer = parts.pop() || ''
-      for (const part of parts) {
-        for (const line of part.split('\n')) {
-          if (line.startsWith('data:')) {
-            try {
-              onTask(JSON.parse(line.slice(5).trim()))
-            } catch {}
+  let retryMs = 1000
+
+  async function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  async function connect() {
+    if (closed || !token) return
+    try {
+      const res = await fetch('/api/v1/events', {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+      })
+      if (!res.ok || !res.body) {
+        await sleep(retryMs)
+        retryMs = Math.min(retryMs * 2, 30000)
+        return connect()
+      }
+      retryMs = 1000
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (!closed) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() || ''
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (line.startsWith('data:')) {
+              try {
+                onTask(JSON.parse(line.slice(5).trim()))
+              } catch {}
+            }
           }
         }
       }
+    } catch {
+      /* stream dropped */
     }
-  })()
+    if (!closed) {
+      await sleep(retryMs)
+      retryMs = Math.min(retryMs * 2, 30000)
+      connect()
+    }
+  }
+
+  connect()
   return () => {
     closed = true
   }

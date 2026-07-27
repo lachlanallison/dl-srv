@@ -10,6 +10,7 @@ const DEFAULTS = {
   category: 'inbox',
   lastCategory: '',
   enabled: true,
+  askOnIntercept: true,
   minSize: 0,
   ignoreExt: ['html', 'htm', 'txt', 'css', 'js', 'json'],
   ignoreDomains: [],
@@ -339,6 +340,37 @@ function notify(title, message) {
   }
 }
 
+async function pendingStorageGet(keys) {
+  if (ext.storage.session) return ext.storage.session.get(keys)
+  return ext.storage.local.get(keys)
+}
+
+async function pendingStorageSet(data) {
+  if (ext.storage.session) return ext.storage.session.set(data)
+  return ext.storage.local.set(data)
+}
+
+async function getPendingQueue() {
+  const data = await pendingStorageGet(['pendingDownloads'])
+  return Array.isArray(data.pendingDownloads) ? data.pendingDownloads : []
+}
+
+async function setPendingQueue(queue) {
+  await pendingStorageSet({ pendingDownloads: queue })
+}
+
+async function getPendingDownload(id) {
+  const queue = await getPendingQueue()
+  return queue.find((p) => p.id === id) || null
+}
+
+async function enqueuePendingDownload(item) {
+  const queue = await getPendingQueue()
+  queue.push(item)
+  await setPendingQueue(queue)
+  return queue.length
+}
+
 globalThis.dlsrv = {
   ext,
   DEFAULTS,
@@ -363,4 +395,9 @@ globalThis.dlsrv = {
   parseCommaList,
   commaList,
   notify,
+  setBadge,
+  getPendingQueue,
+  setPendingQueue,
+  getPendingDownload,
+  enqueuePendingDownload,
 }

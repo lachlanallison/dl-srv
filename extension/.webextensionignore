@@ -1,0 +1,10 @@
+# Excluded from web-ext lint / pack (dev and AMO tooling only)
+build-amo.mjs
+package.json
+package-lock.json
+manifest.chromium.json
+icons/gen.py
+AMO_SUBMISSION.md
+README.md
+dist/
+node_modules/

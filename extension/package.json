@@ -1,0 +1,14 @@
+{
+  "name": "dl-srv-extension",
+  "private": true,
+  "version": "1.0.0",
+  "description": "dl-srv Firefox extension — AMO build tooling",
+  "scripts": {
+    "lint": "web-ext lint --source-dir .",
+    "build:amo": "node ../scripts/build-extension-amo.mjs",
+    "sign": "web-ext sign --source-dir dist/amo --api-key $AMO_JWT_ISSUER --api-secret $AMO_JWT_SECRET"
+  },
+  "devDependencies": {
+    "web-ext": "^8.0.0"
+  }
+}

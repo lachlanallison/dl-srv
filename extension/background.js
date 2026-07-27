@@ -7,17 +7,207 @@
     return
   }
 
-  const { ext, getSettings, postTask, pingServer, extOf, hostOf, notify, normalizeServerUrl, cleanFilenameHint } =
-    globalThis.dlsrv
+  const {
+    ext,
+    getSettings,
+    postTask,
+    pingServer,
+    extOf,
+    hostOf,
+    notify,
+    normalizeServerUrl,
+    cleanFilenameHint,
+    getPendingQueue,
+    setPendingQueue,
+    getPendingDownload,
+    enqueuePendingDownload,
+    setBadge,
+  } = globalThis.dlsrv
+
+  const bypassUrls = new Set()
+  const browserReleaseIds = new Set()
+  let promptWindowId = null
+  let promptPendingId = null
+  let finishingPendingId = null
+
+  function claimBrowserRelease(pendingId) {
+    if (browserReleaseIds.has(pendingId)) return false
+    browserReleaseIds.add(pendingId)
+    setTimeout(() => browserReleaseIds.delete(pendingId), 15000)
+    return true
+  }
+
+  function releasePendingToBrowser(pending) {
+    notify('Downloading in browser', pending.filename || pending.url)
+
+    if (pending.downloadId == null) {
+      releaseToBrowser(pending).catch((e) => {
+        console.error('[dl-srv] browser download', e)
+        notify('Browser download failed', String(e.message || e))
+      })
+      return
+    }
+
+    ext.downloads
+      .search({ id: pending.downloadId })
+      .then(([item]) => {
+        if (item?.state === 'complete') return
+        if (item?.state === 'in_progress' && !item?.paused) return
+        return ext.downloads.resume(pending.downloadId).catch((err) => {
+          console.warn('[dl-srv] resume rejected:', err)
+          if (item?.state === 'in_progress') return
+          return releaseToBrowser(pending)
+        })
+      })
+      .catch((e) => {
+        console.error('[dl-srv] release search', e)
+        releaseToBrowser(pending).catch(() => {})
+      })
+  }
+
+  function makePendingId() {
+    if (crypto.randomUUID) return crypto.randomUUID()
+    return `p-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  async function removePending(id) {
+    const queue = await getPendingQueue()
+    await setPendingQueue(queue.filter((p) => p.id !== id))
+    return (await getPendingQueue()).length
+  }
+
+  async function updatePendingBadge() {
+    const n = (await getPendingQueue()).length
+    if (n > 0) setBadge(String(n), '#2563eb')
+    else setBadge('')
+  }
+
+  function markBypass(url) {
+    if (!url) return
+    bypassUrls.add(url)
+    setTimeout(() => bypassUrls.delete(url), 15000)
+  }
+
+  async function closePromptForPending(id) {
+    if (promptPendingId !== id) return
+    promptPendingId = null
+    const winId = promptWindowId
+    promptWindowId = null
+    if (winId != null) {
+      try {
+        await ext.windows.remove(winId)
+      } catch {
+        /* already closed */
+      }
+    }
+  }
+
+  function releaseToBrowser(pending) {
+    markBypass(pending.url)
+    const opts = { url: pending.url, conflictAction: 'uniquify' }
+    if (pending.referer) opts.referrer = pending.referer
+    if (pending.filename) opts.filename = pending.filename
+    return ext.downloads.download(opts)
+  }
+
+  async function cancelHeldDownload(pending) {
+    if (pending.downloadId == null) return
+    await ext.downloads.cancel(pending.downloadId).catch(() => {})
+    await ext.downloads.erase({ id: pending.downloadId }).catch(() => {})
+  }
+
+  async function holdDownload(item) {
+    const url = item.finalUrl || item.url
+    const name = item.filename || ''
+    const filename = name ? name.split(/[\\/]/).pop() : undefined
+    const cleaned = cleanFilenameHint(filename || url)
+
+    try {
+      await ext.downloads.pause(item.id)
+      return {
+        id: makePendingId(),
+        downloadId: item.id,
+        url,
+        referer: item.referrer || undefined,
+        filename: cleaned || filename,
+        createdAt: Date.now(),
+      }
+    } catch {
+      await ext.downloads.cancel(item.id).catch(() => {})
+      await ext.downloads.erase({ id: item.id }).catch(() => {})
+      return {
+        id: makePendingId(),
+        downloadId: null,
+        url,
+        referer: item.referrer || undefined,
+        filename: cleaned || filename,
+        createdAt: Date.now(),
+      }
+    }
+  }
+
+  async function openPromptFor(id) {
+    promptPendingId = id
+    const url = ext.runtime.getURL(`prompt.html?id=${encodeURIComponent(id)}`)
+    if (promptWindowId != null) {
+      try {
+        const tabs = await ext.tabs.query({ windowId: promptWindowId })
+        if (tabs[0]?.id) {
+          await ext.tabs.update(tabs[0].id, { url })
+          await ext.windows.update(promptWindowId, { focused: true })
+          return
+        }
+      } catch {
+        promptWindowId = null
+      }
+    }
+    const win = await ext.windows.create({
+      url,
+      type: 'popup',
+      width: 380,
+      height: 340,
+      focused: true,
+    })
+    promptWindowId = win.id
+  }
+
+  async function showNextPrompt() {
+    const queue = await getPendingQueue()
+    await updatePendingBadge()
+    if (!queue.length) {
+      promptPendingId = null
+      return
+    }
+    await openPromptFor(queue[0].id)
+  }
+
+  async function finishPending(id, handler) {
+    const pending = await getPendingDownload(id)
+    if (!pending) return { error: 'Download no longer pending' }
+    finishingPendingId = id
+    try {
+      await closePromptForPending(id)
+      await handler(pending)
+      await removePending(id)
+      await showNextPrompt()
+      return { ok: true }
+    } finally {
+      finishingPendingId = null
+    }
+  }
 
   if (ext.downloads?.onCreated) {
     ext.downloads.onCreated.addListener(async (item) => {
       try {
+        const url = item.finalUrl || item.url
+        if (!url) return
+
+        if (bypassUrls.has(url)) return
+
         const settings = await getSettings()
         if (!settings.enabled) return
 
-        const url = item.finalUrl || item.url
-        if (!url || url.startsWith('data:') || url.startsWith('blob:')) return
+        if (url.startsWith('data:') || url.startsWith('blob:')) return
 
         const host = hostOf(url)
         if (settings.ignoreDomains.includes(host)) return
@@ -27,22 +217,52 @@
         if (fileExt && settings.ignoreExt.includes(fileExt)) return
         if (settings.minSize > 0 && item.fileSize > 0 && item.fileSize < settings.minSize) return
 
-        await ext.downloads.cancel(item.id).catch(() => {})
-        await ext.downloads.erase({ id: item.id }).catch(() => {})
-
         const filename = name ? name.split(/[\\/]/).pop() : undefined
-        await postTask({
-          url,
-          referer: item.referrer || undefined,
-          filename: cleanFilenameHint(filename || url),
-        })
-        notify('Sent to dl-srv', filename || url)
+        const cleaned = cleanFilenameHint(filename || url)
+
+        if (!settings.askOnIntercept) {
+          await ext.downloads.cancel(item.id).catch(() => {})
+          await ext.downloads.erase({ id: item.id }).catch(() => {})
+          await postTask({
+            url,
+            referer: item.referrer || undefined,
+            filename: cleaned,
+          })
+          notify('Sent to dl-srv', cleaned || filename || url)
+          return
+        }
+
+        const pending = await holdDownload(item)
+        await enqueuePendingDownload(pending)
+        await updatePendingBadge()
+        await openPromptFor(pending.id)
       } catch (e) {
         console.error('[dl-srv] download intercept', e)
         const { debugLog } = globalThis.dlsrv
-        if (debugLog) await debugLog('error', 'Download intercept failed', { url: item.finalUrl || item.url, error: String(e.message || e) })
+        if (debugLog) {
+          await debugLog('error', 'Download intercept failed', {
+            url: item.finalUrl || item.url,
+            error: String(e.message || e),
+          })
+        }
         notify('dl-srv failed', String(e.message || e))
       }
+    })
+  }
+
+  if (ext.windows?.onRemoved) {
+    ext.windows.onRemoved.addListener(async (windowId) => {
+      if (windowId !== promptWindowId) return
+      promptWindowId = null
+      const id = promptPendingId
+      promptPendingId = null
+      if (!id || id === finishingPendingId) return
+      if (!claimBrowserRelease(id)) return
+      const pending = await getPendingDownload(id)
+      if (!pending) return
+      await removePending(id)
+      releasePendingToBrowser(pending)
+      await showNextPrompt()
     })
   }
 
@@ -95,6 +315,52 @@
       })()
       return true
     }
+
+    if (msg.type === 'dlsrv-intercept-send') {
+      ;(async () => {
+        sendResponse(
+          await finishPending(msg.id, async (pending) => {
+            await cancelHeldDownload(pending)
+            await postTask({
+              url: pending.url,
+              referer: pending.referer,
+              filename: pending.filename,
+              category: msg.category,
+            })
+            notify('Sent to dl-srv', `${msg.category}/ — ${pending.filename || pending.url}`)
+          }),
+        )
+      })()
+      return true
+    }
+
+    if (msg.type === 'dlsrv-intercept-browser') {
+      ;(async () => {
+        const pending = await getPendingDownload(msg.id)
+        if (!pending) {
+          sendResponse({ error: 'Download no longer pending' })
+          return
+        }
+        if (!claimBrowserRelease(msg.id)) {
+          sendResponse({ ok: true })
+          return
+        }
+        finishingPendingId = msg.id
+        await closePromptForPending(msg.id)
+        await removePending(msg.id)
+        sendResponse({ ok: true })
+        releasePendingToBrowser(pending)
+        finishingPendingId = null
+        await showNextPrompt()
+      })()
+      return true
+    }
+
+    if (msg.type === 'dlsrv-intercept-dismiss') {
+      sendResponse({ ok: true })
+      return false
+    }
+
     if (msg.type !== 'dlsrv-fetch') return undefined
     ;(async () => {
       try {
