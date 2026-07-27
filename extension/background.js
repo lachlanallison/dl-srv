@@ -7,7 +7,7 @@
     return
   }
 
-  const { ext, getSettings, postTask, pingServer, extOf, hostOf, notify, normalizeServerUrl } =
+  const { ext, getSettings, postTask, pingServer, extOf, hostOf, notify, normalizeServerUrl, cleanFilenameHint } =
     globalThis.dlsrv
 
   if (ext.downloads?.onCreated) {
@@ -31,7 +31,11 @@
         await ext.downloads.erase({ id: item.id }).catch(() => {})
 
         const filename = name ? name.split(/[\\/]/).pop() : undefined
-        await postTask({ url, referer: item.referrer || undefined })
+        await postTask({
+          url,
+          referer: item.referrer || undefined,
+          filename: cleanFilenameHint(filename || url),
+        })
         notify('Sent to dl-srv', filename || url)
       } catch (e) {
         console.error('[dl-srv] download intercept', e)

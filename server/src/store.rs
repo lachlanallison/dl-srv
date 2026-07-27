@@ -112,6 +112,7 @@ pub struct RssFeed {
 pub struct AddTaskInput {
     pub url: String,
     pub category: String,
+    pub filename: Option<String>,
     pub referer: Option<String>,
     pub cookies: Option<String>,
     pub force_ytdlp: bool,
@@ -184,6 +185,12 @@ impl Store {
         } else {
             input.category.clone()
         };
+        let filename = input
+            .filename
+            .as_ref()
+            .and_then(|s| crate::filename::clean_download_filename(s))
+            .or_else(|| crate::filename::filename_from_url(&input.url));
+
         let task = Task {
             id: Uuid::new_v4().to_string(),
             url: input.url.clone(),
@@ -191,7 +198,7 @@ impl Store {
             status: TaskStatus::Pending,
             backend_gid: None,
             category,
-            filename: None,
+            filename,
             save_path: Some(save_path.to_string()),
             progress: 0.0,
             done_bytes: 0,
@@ -206,14 +213,15 @@ impl Store {
             completed_at: None,
         };
         self.conn.execute(
-            "INSERT INTO tasks (id, url, type, status, category, save_path, referer, quality, source, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO tasks (id, url, type, status, category, filename, save_path, referer, quality, source, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 task.id,
                 task.url,
                 task.task_type.as_str(),
                 task.status.as_str(),
                 task.category,
+                task.filename,
                 task.save_path,
                 task.referer,
                 task.quality,

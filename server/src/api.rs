@@ -170,6 +170,7 @@ async fn get_task(
 struct CreateTaskBody {
     url: String,
     category: Option<String>,
+    filename: Option<String>,
     referer: Option<String>,
     cookies: Option<String>,
     force_ytdlp: Option<bool>,
@@ -198,6 +199,7 @@ async fn create_task(
     let input = AddTaskInput {
         url: body.url.trim().to_string(),
         category: body.category.unwrap_or_default(),
+        filename: body.filename,
         referer: body.referer,
         cookies: body.cookies,
         force_ytdlp: body.force_ytdlp.unwrap_or(false),

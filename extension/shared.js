@@ -8,12 +8,28 @@ const DEFAULTS = {
   serverUrl: '',
   token: '',
   category: 'inbox',
+  lastCategory: '',
   enabled: true,
   minSize: 0,
   ignoreExt: ['html', 'htm', 'txt', 'css', 'js', 'json'],
   ignoreDomains: [],
   autoForceYtdlp: false,
   debugEnabled: true,
+}
+
+const CATEGORY_PRESETS = ['tv', 'movies', 'inbox', 'music']
+
+function cleanFilenameHint(raw) {
+  if (!raw) return undefined
+  const name = String(raw).split(/[\\/]/).pop() || ''
+  if (!name.includes('.')) return undefined
+  try {
+    const decoded = decodeURIComponent(name.replace(/\+/g, ' '))
+    const m = /^[A-Za-z0-9_-]{8,}-(.+\.[A-Za-z0-9]{2,5})$/.exec(decoded)
+    return m ? m[1] : decoded
+  } catch {
+    return name
+  }
 }
 
 function actionApi() {
@@ -326,6 +342,8 @@ function notify(title, message) {
 globalThis.dlsrv = {
   ext,
   DEFAULTS,
+  CATEGORY_PRESETS,
+  cleanFilenameHint,
   extensionVersion,
   getSettings,
   saveSettings,

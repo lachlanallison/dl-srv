@@ -76,6 +76,7 @@ impl RssPoller {
             let input = AddTaskInput {
                 url: link,
                 category: feed.category.clone(),
+                filename: None,
                 referer: Some(feed.url.clone()),
                 cookies: None,
                 force_ytdlp: false,

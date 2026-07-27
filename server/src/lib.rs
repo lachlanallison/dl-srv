@@ -1,6 +1,7 @@
 mod api;
 mod aria2;
 mod config;
+mod filename;
 mod hooks;
 mod manager;
 mod qbit;

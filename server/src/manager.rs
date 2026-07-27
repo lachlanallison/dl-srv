@@ -230,7 +230,7 @@ impl Manager {
 
         let lower = task.url.trim().to_ascii_lowercase();
         let filename = if router::is_direct_file_url(&lower) {
-            filename_from_url(&task.url)
+            task.filename.clone()
         } else {
             None
         };
@@ -472,15 +472,6 @@ fn infer_referer(url: &str, referer: Option<String>) -> Option<String> {
     url::Url::parse(url.trim())
         .ok()
         .map(|u| format!("{}/", u.origin().ascii_serialization()))
-}
-
-fn filename_from_url(url: &str) -> Option<String> {
-    let path = url.trim().split('?').next()?;
-    let name = path.rsplit('/').next()?;
-    if name.is_empty() || !name.contains('.') {
-        return None;
-    }
-    Some(name.to_string())
 }
 
 fn is_torrent_url(lower: &str) -> bool {

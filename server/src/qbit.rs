@@ -323,6 +323,7 @@ async fn torrents_add(
         let input = AddTaskInput {
             url: url.trim().to_string(),
             category: category.clone(),
+            filename: None,
             referer: None,
             cookies: None,
             force_ytdlp: false,
