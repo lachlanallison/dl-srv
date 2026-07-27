@@ -7,7 +7,7 @@ Sends browser downloads (and the current tab URL) to your [dl-srv](../README.md)
 1. Open `chrome://extensions` (or `edge://extensions`)
 2. Enable **Developer mode**
 3. Click **Load unpacked**
-4. Select this `extension/` folder (uses `manifest.json`)
+4. Select this `extension/` folder — copy `manifest.chromium.json` over `manifest.json` first (repo default is Firefox)
 
 ## Firefox
 

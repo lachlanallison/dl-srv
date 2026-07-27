@@ -32,7 +32,8 @@ struct VersionResult {
 
 #[derive(Debug, Deserialize)]
 pub struct Aria2Status {
-    pub gid: String,
+    #[serde(rename = "gid")]
+    pub _gid: String,
     pub status: String,
     #[serde(rename = "totalLength")]
     pub total_length: String,

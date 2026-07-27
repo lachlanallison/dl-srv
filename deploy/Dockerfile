@@ -7,8 +7,8 @@ RUN npm install
 COPY web/ ./
 RUN npm run build
 
-FROM rust:1.84-alpine AS server
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+FROM rust:alpine AS server
+RUN apk add --no-cache musl-dev pkgconfig
 WORKDIR /app
 COPY server/Cargo.toml server/Cargo.lock* ./server/
 COPY server/src ./server/src

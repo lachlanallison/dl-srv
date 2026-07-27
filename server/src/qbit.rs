@@ -384,7 +384,8 @@ async fn pause_or_resume(state: &QbitState, hashes: &str, pause: bool) -> Result
 #[allow(non_snake_case)]
 struct DeleteForm {
     hashes: String,
-    deleteFiles: Option<String>,
+    #[serde(rename = "deleteFiles")]
+    _deleteFiles: Option<String>,
 }
 
 async fn torrents_delete(

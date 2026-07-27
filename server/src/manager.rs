@@ -99,10 +99,6 @@ impl Manager {
         self.version_checker.clone()
     }
 
-    pub fn ytdlp_jobs(&self) -> Arc<YtdlpJobRegistry> {
-        self.ytdlp_jobs.clone()
-    }
-
     pub async fn add_task(self: &Arc<Self>, input: AddTaskInput) -> Result<Task> {
         let runner = self.ytdlp_runner().await;
         let cfg = self.cfg.read().await;

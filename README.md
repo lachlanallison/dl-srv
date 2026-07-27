@@ -45,7 +45,7 @@ Open http://localhost:35778 — the **setup wizard** shows your API token on fir
 Same pattern as Jellyfin: `apps/<app>/config` for state, shared `media/` for libraries.
 
 ```
-/mnt/tank/apps/
+/mnt/apps/
   jellyfin/config/     ← existing
   dl-srv/config/       ← dl-srv state
 /mnt/tank/media/       ← movies/, tv/, … (same as Jellyfin)
@@ -57,12 +57,12 @@ In `.env`:
 
 ```bash
 HOST_MEDIA_PATH=/mnt/tank/media
-HOST_CONFIG_PATH=/mnt/tank/apps/dl-srv/config
+HOST_CONFIG_PATH=/mnt/apps/dl-srv/config
 DOWNLOAD_DIR=/media
 CONFIG_DIR=/config
 ```
 
-Create config before first run: `mkdir -p /mnt/tank/apps/dl-srv/config`
+Create config before first run: `mkdir -p /mnt/apps/dl-srv/config`
 
 
 

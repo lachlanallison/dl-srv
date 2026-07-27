@@ -38,17 +38,9 @@ pub fn classify_sync(url: &str, force_ytdlp: bool) -> TaskType {
 }
 
 pub async fn classify(url: &str, force_ytdlp: bool, runner: Option<&YtdlpRunner>) -> TaskType {
-    if force_ytdlp {
-        return TaskType::Ytdlp;
-    }
-    let lower = url.trim().to_ascii_lowercase();
-    if lower.starts_with("magnet:") || is_torrent_url(&lower) {
-        return TaskType::Aria2;
-    }
-    for host in VIDEO_HOSTS {
-        if lower.contains(host) {
-            return TaskType::Ytdlp;
-        }
+    let sync = classify_sync(url, force_ytdlp);
+    if sync != TaskType::Aria2 {
+        return sync;
     }
     if let Some(r) = runner {
         if r.simulate(url).await.unwrap_or(false) {

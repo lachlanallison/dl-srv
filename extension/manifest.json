@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "dl-srv",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Send browser downloads to your dl-srv NAS",
   "browser_specific_settings": {
     "gecko": {
@@ -12,13 +12,16 @@
   "permissions": ["downloads", "storage", "contextMenus", "notifications", "alarms", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["shared.js", "background.js"]
   },
   "action": {
     "default_popup": "popup.html",
     "default_title": "dl-srv"
   },
-  "options_page": "options.html",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

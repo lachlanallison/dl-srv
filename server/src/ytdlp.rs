@@ -67,10 +67,6 @@ impl YtdlpJobRegistry {
         }
     }
 
-    pub fn remove(&self, task_id: &str) {
-        self.jobs.lock().unwrap().remove(task_id);
-    }
-
     pub fn take(&self, task_id: &str) -> Option<Child> {
         self.jobs.lock().unwrap().remove(task_id)
     }

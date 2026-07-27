@@ -17,7 +17,7 @@ futures = "0.3"
 hex = "0.4"
 rand = "0.8"
 regex = "1.11"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
 rss = "2.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
