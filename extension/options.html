@@ -4,26 +4,43 @@
     <meta charset="utf-8" />
     <title>dl-srv options</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 560px; line-height: 1.45; }
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 720px; line-height: 1.45; }
       label { display: block; margin: 0.75rem 0; }
       input[type='text'], input[type='url'] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
       .hint { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }
+      button { padding: 0.45rem 0.75rem; cursor: pointer; }
+      pre#debugOut {
+        background: #111;
+        color: #ddd;
+        padding: 0.75rem;
+        font-size: 0.75rem;
+        overflow: auto;
+        max-height: 280px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      h2 { margin-top: 1.5rem; font-size: 1rem; }
+      .ok { color: #15803d; }
+      .err { color: #b91c1c; }
     </style>
   </head>
   <body>
     <h1>dl-srv</h1>
     <label>
       Server URL
-      <input id="serverUrl" type="url" placeholder="http://nas:35778" />
+      <input id="serverUrl" type="url" placeholder="http://192.168.1.50:35778" />
+      <div class="hint">Base URL only — include <code>http://</code>, IP/hostname, and port <code>:35778</code>. No <code>/api/v1</code> suffix.</div>
     </label>
     <label>
       API token
       <input id="token" type="text" />
+      <div class="hint">From dl-srv web UI setup wizard or <code>config/config.json</code> on the NAS.</div>
     </label>
     <label>
       Default category
-      <input id="category" type="text" placeholder="inbox" />
-      <div class="hint">Folder under your download root (e.g. movies, tv)</div>
+      <input id="category" type="text" placeholder="movies" />
+      <div class="hint">Subfolder under your media root — e.g. <code>movies</code>, <code>tv</code>. Default <code>inbox</code> is a catch-all staging folder; change this to match your Jellyfin libraries.</div>
     </label>
     <label><input id="enabled" type="checkbox" /> Intercept browser downloads</label>
     <label><input id="autoForceYtdlp" type="checkbox" /> Auto force yt-dlp for intercepted downloads</label>
@@ -39,8 +56,19 @@
       Ignore domains (comma-separated)
       <input id="ignoreDomains" type="text" placeholder="example.com" />
     </label>
-    <button id="save">Save</button>
+    <label><input id="debugEnabled" type="checkbox" checked /> Keep debug log (last 80 requests)</label>
+
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="testHealth">Test connection</button>
+      <button id="testQueue">Test queue API</button>
+      <button id="clearLog">Clear log</button>
+    </div>
     <p id="status"></p>
+
+    <h2>Debug log</h2>
+    <pre id="debugOut">(loading…)</pre>
+
     <script src="shared.js"></script>
     <script src="options.js"></script>
   </body>

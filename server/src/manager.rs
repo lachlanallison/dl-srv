@@ -159,7 +159,7 @@ impl Manager {
     async fn start_aria2_task(&self, task: &mut Task) -> Result<()> {
         let cfg = self.cfg.read().await;
         let dir = cfg.category_dir(&task.category).to_string_lossy().into_owned();
-        let referer = task.referer.clone();
+        let referer = infer_referer(&task.url, task.referer.clone());
         drop(cfg);
 
         let lower = task.url.trim().to_ascii_lowercase();
@@ -400,6 +400,15 @@ impl Manager {
         self.version_checker.invalidate().await;
         Ok(msg)
     }
+}
+
+fn infer_referer(url: &str, referer: Option<String>) -> Option<String> {
+    if referer.is_some() {
+        return referer;
+    }
+    url::Url::parse(url.trim())
+        .ok()
+        .map(|u| format!("{}/", u.origin().ascii_serialization()))
 }
 
 fn is_torrent_url(lower: &str) -> bool {

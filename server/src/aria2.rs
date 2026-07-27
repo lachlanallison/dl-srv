@@ -51,10 +51,24 @@ pub struct Aria2File {
     pub path: String,
 }
 
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 pub struct AddOptions {
     pub dir: String,
     pub referer: Option<String>,
     pub filename: Option<String>,
+}
+
+fn download_options(opts: AddOptions) -> Value {
+    let mut options = json!({ "dir": opts.dir });
+    options["header"] = json!([format!("User-Agent: {BROWSER_UA}")]);
+    if let Some(r) = opts.referer {
+        options["referer"] = json!(r);
+    }
+    if let Some(f) = opts.filename {
+        options["out"] = json!(f);
+    }
+    options
 }
 
 impl Aria2Client {
@@ -109,13 +123,7 @@ impl Aria2Client {
     }
 
     pub async fn add_uri(&self, uris: Vec<String>, opts: AddOptions) -> Result<String> {
-        let mut options = json!({ "dir": opts.dir });
-        if let Some(r) = opts.referer {
-            options["referer"] = json!(r);
-        }
-        if let Some(f) = opts.filename {
-            options["out"] = json!(f);
-        }
+        let options = download_options(opts);
         let result = self
             .call("aria2.addUri", vec![json!(uris), options])
             .await?;

@@ -225,22 +225,25 @@ impl Store {
     }
 
     pub fn list_tasks(&self, limit: i64, status: Option<&str>) -> Result<Vec<Task>> {
-        let sql = if status.is_some() {
-            "SELECT id, url, type, status, backend_gid, category, filename, save_path,
+        const COLS: &str = "id, url, type, status, backend_gid, category, filename, save_path,
                     progress, done_bytes, total_bytes, speed, error, referer, quality, source,
-                    created_at, updated_at, completed_at
-             FROM tasks WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
-        } else {
-            "SELECT id, url, type, status, backend_gid, category, filename, save_path,
-                    progress, done_bytes, total_bytes, speed, error, referer, quality, source,
-                    created_at, updated_at, completed_at
-             FROM tasks ORDER BY created_at DESC LIMIT ?1"
+                    created_at, updated_at, completed_at";
+        let mut stmt = match status {
+            Some("active") => self.conn.prepare(&format!(
+                "SELECT {COLS} FROM tasks WHERE status IN ('pending', 'downloading', 'paused')
+                 ORDER BY created_at DESC LIMIT ?1"
+            ))?,
+            Some(_) => self.conn.prepare(&format!(
+                "SELECT {COLS} FROM tasks WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
+            ))?,
+            None => self.conn.prepare(&format!(
+                "SELECT {COLS} FROM tasks ORDER BY created_at DESC LIMIT ?1"
+            ))?,
         };
-        let mut stmt = self.conn.prepare(sql)?;
-        let rows = if let Some(st) = status {
-            stmt.query_map(params![st, limit], row_to_task)?
-        } else {
-            stmt.query_map([limit], row_to_task)?
+        let rows = match status {
+            Some("active") => stmt.query_map([limit], row_to_task)?,
+            Some(st) => stmt.query_map(params![st, limit], row_to_task)?,
+            None => stmt.query_map([limit], row_to_task)?,
         };
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }

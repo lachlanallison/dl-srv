@@ -58,6 +58,8 @@
 
   let url = ''
 
+  let referer = ''
+
   let category = 'inbox'
 
   let forceYtdlp = false
@@ -87,6 +89,18 @@
   let updatingYtdlp = false
 
   let unsubscribe = null
+
+
+
+  function taskMatchesFilter(task, filter) {
+
+    if (filter === 'all') return true
+
+    if (filter === 'active') return ['pending', 'downloading', 'paused'].includes(task.status)
+
+    return task.status === filter
+
+  }
 
 
 
@@ -122,7 +136,7 @@
 
         setupToken = setup.token || ''
 
-        if (setupToken && !token) {
+        if (setupToken) {
 
           token = setupToken
 
@@ -222,7 +236,7 @@
 
       const idx = tasks.findIndex((t) => t.id === task.id)
 
-      if (queueFilter === 'all') {
+      if (taskMatchesFilter(task, queueFilter)) {
 
         if (idx >= 0) tasks[idx] = task
 
@@ -230,13 +244,7 @@
 
       } else if (idx >= 0) {
 
-        tasks[idx] = task
-
-      } else {
-
-        refreshTasks().catch(() => {})
-
-        return
+        tasks = tasks.filter((t) => t.id !== task.id)
 
       }
 
@@ -296,7 +304,37 @@
 
     const t = setupToken || token
 
-    await navigator.clipboard.writeText(t)
+    if (!t) {
+
+      setError(new Error('No token to copy'))
+
+      return
+
+    }
+
+    try {
+
+      await navigator.clipboard.writeText(t)
+
+    } catch {
+
+      const ta = document.createElement('textarea')
+
+      ta.value = t
+
+      ta.style.position = 'fixed'
+
+      ta.style.left = '-9999px'
+
+      document.body.appendChild(ta)
+
+      ta.select()
+
+      document.execCommand('copy')
+
+      document.body.removeChild(ta)
+
+    }
 
     copied = true
 
@@ -318,6 +356,8 @@
 
         url: url.trim(),
 
+        referer: referer.trim() || undefined,
+
         category: category || settingsForm.default_category || 'inbox',
 
         force_ytdlp: forceYtdlp,
@@ -326,9 +366,13 @@
 
       })
 
-      tasks = [task, ...tasks]
+      if (taskMatchesFilter(task, queueFilter)) tasks = [task, ...tasks]
 
       url = ''
+
+      referer = ''
+
+      tab = 'queue'
 
     } catch (e) {
 
@@ -779,6 +823,14 @@
           <div class="muted">URL, magnet, or video page</div>
 
           <input bind:value={url} placeholder="https://..." />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Referer (optional — file host page URL)</div>
+
+          <input bind:value={referer} placeholder="https://akirabox.to/f/..." />
 
         </label>
 

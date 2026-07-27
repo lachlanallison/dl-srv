@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "dl-srv",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Send browser downloads to your dl-srv NAS",
   "browser_specific_settings": {
     "gecko": {

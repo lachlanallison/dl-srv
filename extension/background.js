@@ -34,6 +34,8 @@
         notify('Sent to dl-srv', filename || url)
       } catch (e) {
         console.error('[dl-srv] download intercept', e)
+        const { debugLog } = globalThis.dlsrv
+        if (debugLog) await debugLog('error', 'Download intercept failed', { url: item.finalUrl || item.url, error: String(e.message || e) })
         notify('dl-srv failed', String(e.message || e))
       }
     })
