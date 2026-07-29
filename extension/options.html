@@ -46,7 +46,7 @@
     <label><input id="enabled" type="checkbox" /> Intercept browser downloads</label>
     <label><input id="interceptMagnets" type="checkbox" checked /> Intercept magnet links (when Firefox opens them in the browser)</label>
     <label><input id="askOnIntercept" type="checkbox" checked /> Ask category when intercepting (or send back to browser)</label>
-    <div class="hint">Firefox: Settings → General → Files and Applications → magnet → choose <strong>Always ask</strong> (not an external torrent app), so the extension can catch the link.</div>
+    <div class="hint">Firefox: Settings → General → Applications → <strong>magnet</strong> must be <strong>Always ask</strong> (not qBittorrent or another app). Reload the extension at <code>about:debugging</code> after updates.</div>
     <label><input id="autoForceYtdlp" type="checkbox" /> Auto force yt-dlp for intercepted downloads</label>
     <label>
       Min file size (bytes, 0 = all)

@@ -128,6 +128,8 @@ function subscribeEvents(token, onTask) {
   }
 }
 
+export const WEB_VERSION = __WEB_VERSION__
+
 export function formatBytes(n) {
   if (!n) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

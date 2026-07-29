@@ -203,15 +203,18 @@
   async function handleMagnetNavigation(url, tabId, referer) {
     if (!url?.startsWith('magnet:') || bypassUrls.has(url)) return
     if (recentMagnets.has(url)) return
-    recentMagnets.add(url)
-    setTimeout(() => recentMagnets.delete(url), 5000)
 
     const settings = await getSettings()
     if (!settings.enabled || settings.interceptMagnets === false) return
 
-    ext.tabs.goBack(tabId).catch(() => {
-      ext.tabs.update(tabId, { url: 'about:blank' }).catch(() => {})
-    })
+    recentMagnets.add(url)
+    setTimeout(() => recentMagnets.delete(url), 5000)
+
+    if (tabId != null) {
+      ext.tabs.goBack(tabId).catch(() => {
+        ext.tabs.update(tabId, { url: 'about:blank' }).catch(() => {})
+      })
+    }
 
     const pending = {
       id: makePendingId(),
@@ -224,6 +227,12 @@
     await queueIntercept(pending, settings)
   }
 
+  function watchMagnet(url, tabId, referer) {
+    handleMagnetNavigation(url, tabId, referer).catch((e) => {
+      console.error('[dl-srv] magnet intercept', e)
+    })
+  }
+
   if (ext.tabs?.onUpdated) {
     ext.tabs.onUpdated.addListener((tabId, changeInfo) => {
       const url = changeInfo.url
@@ -232,11 +241,25 @@
         return
       }
       if (!url?.startsWith('magnet:')) return
-      handleMagnetNavigation(url, tabId, tabLastHttpUrl.get(tabId)).catch((e) => {
-        console.error('[dl-srv] magnet intercept', e)
-      })
+      watchMagnet(url, tabId, tabLastHttpUrl.get(tabId))
     })
     ext.tabs.onRemoved.addListener((tabId) => tabLastHttpUrl.delete(tabId))
+  }
+
+  if (ext.tabs?.onCreated) {
+    ext.tabs.onCreated.addListener((tab) => {
+      const url = tab.pendingUrl || tab.url
+      if (!url?.startsWith('magnet:') || tab.id == null) return
+      watchMagnet(url, tab.id, tabLastHttpUrl.get(tab.openerTabId))
+    })
+  }
+
+  if (ext.webNavigation?.onCommitted) {
+    ext.webNavigation.onCommitted.addListener((details) => {
+      if (details.frameId !== 0) return
+      if (!details.url?.startsWith('magnet:')) return
+      watchMagnet(details.url, details.tabId, tabLastHttpUrl.get(details.tabId))
+    })
   }
 
   async function showNextPrompt() {

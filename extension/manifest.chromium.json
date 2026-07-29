@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "dl-srv",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Send browser downloads to your self-hosted dl-srv NAS (HTTP, torrents, and video sites).",
-  "permissions": ["downloads", "storage", "contextMenus", "notifications", "alarms", "tabs", "cookies"],
+  "permissions": ["downloads", "storage", "contextMenus", "notifications", "alarms", "tabs", "webNavigation", "cookies"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src http: https: data: blob:;"

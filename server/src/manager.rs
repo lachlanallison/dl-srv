@@ -162,7 +162,8 @@ impl Manager {
 
         let lower = input.url.trim().to_ascii_lowercase();
         let mut task_type = router::classify_sync(&input.url, input.force_ytdlp);
-        if task_type == TaskType::Aria2 && !router::is_direct_file_url(&lower) {
+        let is_bt = lower.starts_with("magnet:") || is_torrent_url(&lower);
+        if task_type == TaskType::Aria2 && !router::is_direct_file_url(&lower) && !is_bt {
             task_type = match tokio::time::timeout(
                 std::time::Duration::from_secs(20),
                 router::classify(&input.url, input.force_ytdlp, Some(&runner)),
@@ -421,12 +422,18 @@ impl Manager {
                 None => continue,
             };
             let prev_status = task.status;
-            let st = self.aria2.tell_status(&gid).await?;
+            let st = match self.aria2.tell_status(&gid).await {
+                Ok(st) => st,
+                Err(e) => {
+                    warn!(task_id = %task.id, gid = %gid, err = %e, "aria2 tell_status failed");
+                    continue;
+                }
+            };
             let is_metadata = aria2::is_metadata_status(&st);
 
             // Magnet phase 1: metadata download → hand off to the real torrent gid.
-            if let Some(next) = self.resolve_magnet_content_gid(&gid, &st, &task.url).await? {
-                if next != gid {
+            match self.resolve_magnet_content_gid(&gid, &st, &task.url).await {
+                Ok(Some(next)) if next != gid => {
                     task.backend_gid = Some(next);
                     task.status = TaskStatus::Downloading;
                     task.progress = 0.0;
@@ -444,6 +451,10 @@ impl Manager {
                     self.save_and_emit(&task)?;
                     continue;
                 }
+                Err(e) => {
+                    warn!(task_id = %task.id, err = %e, "magnet gid handoff failed");
+                }
+                _ => {}
             }
 
             let total = aria2::parse_i64(&st.total_length);

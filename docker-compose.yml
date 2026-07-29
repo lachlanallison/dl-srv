@@ -22,6 +22,7 @@ services:
       - ARIA2_RPC_SECRET=${ARIA2_RPC_SECRET:-dl-srv-secret}
       - DOWNLOAD_DIR=${DOWNLOAD_DIR:-/media}
       - CONFIG_DIR=${CONFIG_DIR:-/config}
+      - RUST_LOG=${RUST_LOG:-dlsrv=info}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:35778/"]
       interval: 30s

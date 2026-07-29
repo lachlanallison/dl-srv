@@ -46,6 +46,9 @@ pub async fn classify(url: &str, force_ytdlp: bool, runner: Option<&YtdlpRunner>
         return sync;
     }
     let lower = url.trim().to_ascii_lowercase();
+    if lower.starts_with("magnet:") || is_torrent_url(&lower) {
+        return TaskType::Aria2;
+    }
     if is_direct_file_url(&lower) {
         return TaskType::Aria2;
     }

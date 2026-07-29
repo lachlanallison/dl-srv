@@ -14,6 +14,8 @@
 
     formatShareRatio,
 
+    WEB_VERSION,
+
     getToken,
 
     setToken,
@@ -724,7 +726,19 @@
 
       <h1>dl-srv</h1>
 
-      <div class="muted">Remote download inbox for your NAS</div>
+      <div class="muted">
+
+        Remote download inbox
+
+        · UI {WEB_VERSION}
+
+        {#if health?.dlsrv_version}
+
+          · server {health.dlsrv_version}
+
+        {/if}
+
+      </div>
 
     </div>
 
@@ -1010,6 +1024,48 @@
 
         </label>
 
+        <h3>BitTorrent</h3>
+
+        <label>
+
+          <div class="muted">Seed ratio (0 = no ratio limit)</div>
+
+          <input type="number" min="0" step="0.1" bind:value={settingsForm.bt_seed_ratio} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Seed time after complete (minutes, 0 = until ratio is met)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.bt_seed_time} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max peers per torrent</div>
+
+          <input type="number" min="1" max="1000" step="1" bind:value={settingsForm.bt_max_peers} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max upload speed (KiB/s, 0 = unlimited)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.max_upload_kbps} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max download speed (KiB/s, 0 = unlimited)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.max_download_kbps} />
+
+        </label>
+
         <label>
 
           <div class="muted">yt-dlp quality preset</div>
@@ -1058,48 +1114,6 @@
 
         </label>
 
-        <h3>BitTorrent</h3>
-
-        <label>
-
-          <div class="muted">Seed ratio (0 = no ratio limit)</div>
-
-          <input type="number" min="0" step="0.1" bind:value={settingsForm.bt_seed_ratio} />
-
-        </label>
-
-        <label>
-
-          <div class="muted">Seed time after complete (minutes, 0 = until ratio is met)</div>
-
-          <input type="number" min="0" step="1" bind:value={settingsForm.bt_seed_time} />
-
-        </label>
-
-        <label>
-
-          <div class="muted">Max peers per torrent</div>
-
-          <input type="number" min="1" max="1000" step="1" bind:value={settingsForm.bt_max_peers} />
-
-        </label>
-
-        <label>
-
-          <div class="muted">Max upload speed (KiB/s, 0 = unlimited)</div>
-
-          <input type="number" min="0" step="1" bind:value={settingsForm.max_upload_kbps} />
-
-        </label>
-
-        <label>
-
-          <div class="muted">Max download speed (KiB/s, 0 = unlimited)</div>
-
-          <input type="number" min="0" step="1" bind:value={settingsForm.max_download_kbps} />
-
-        </label>
-
         <div class="row">
 
           <button class="primary" disabled={settingsSaving} onclick={saveSettings}>
@@ -1141,6 +1155,12 @@
             {/if}
 
           </div>
+
+        {/if}
+
+        {#if health?.dlsrv_version}
+
+          <p class="muted" style="margin: 0">Running dl-srv {health.dlsrv_version}</p>
 
         {/if}
 
