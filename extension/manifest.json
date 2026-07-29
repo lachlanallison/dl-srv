@@ -1,13 +1,20 @@
 {
   "manifest_version": 3,
   "name": "dl-srv",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Send browser downloads to your self-hosted dl-srv NAS (HTTP, torrents, and video sites).",
+  "homepage_url": "https://github.com/lachlanallison/dl-srv",
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["magnet-click.js"],
+      "run_at": "document_start"
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "dl-srv@lachlanallison.com",
       "strict_min_version": "140.0",
-      "homepage_url": "https://github.com/lachlanallison/dl-srv",
       "data_collection_permissions": {
         "required": ["browsingActivity", "websiteContent"]
       }

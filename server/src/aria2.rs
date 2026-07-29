@@ -236,11 +236,10 @@ impl Aria2Client {
 
     async fn list_gids(&self) -> Result<Vec<String>> {
         let mut gids = Vec::new();
-        let calls: [(&str, Vec<Value>); 3] = [
+        // Paused downloads are included in tellWaiting — there is no tellPaused RPC.
+        let calls: [(&str, Vec<Value>); 2] = [
             ("aria2.tellActive", vec![]),
-            // tellWaiting/tellPaused require offset + num (unlike tellActive).
             ("aria2.tellWaiting", vec![json!(0), json!(1000)]),
-            ("aria2.tellPaused", vec![json!(0), json!(1000)]),
         ];
         for (method, params) in calls {
             let result = self.call(method, params).await?;
@@ -248,6 +247,8 @@ impl Aria2Client {
                 for v in arr {
                     if let Some(s) = v.as_str() {
                         gids.push(s.to_string());
+                    } else if let Some(gid) = v.get("gid").and_then(|g| g.as_str()) {
+                        gids.push(gid.to_string());
                     }
                 }
             }

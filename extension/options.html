@@ -46,7 +46,7 @@
     <label><input id="enabled" type="checkbox" /> Intercept browser downloads</label>
     <label><input id="interceptMagnets" type="checkbox" checked /> Intercept magnet links (when Firefox opens them in the browser)</label>
     <label><input id="askOnIntercept" type="checkbox" checked /> Ask category when intercepting (or send back to browser)</label>
-    <div class="hint">Firefox: Settings → General → Applications → <strong>magnet</strong> must be <strong>Always ask</strong> (not qBittorrent or another app). Reload the extension at <code>about:debugging</code> after updates.</div>
+    <div class="hint">For magnet links on web pages, dl-srv intercepts clicks automatically. If you still get an &quot;choose application&quot; dialog: Firefox → Settings → Applications → <strong>magnet</strong> → <strong>Always ask</strong>. On Windows, also remove magnet from Settings → Apps → Default apps. Optional: in <code>about:config</code>, set <code>network.protocol-handler.expose.magnet</code> to <code>true</code>.</div>
     <label><input id="autoForceYtdlp" type="checkbox" /> Auto force yt-dlp for intercepted downloads</label>
     <label>
       Min file size (bytes, 0 = all)

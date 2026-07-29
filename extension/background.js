@@ -467,6 +467,12 @@
       return false
     }
 
+    if (msg.type === 'dlsrv-magnet-click') {
+      watchMagnet(msg.url, null, msg.pageUrl)
+      sendResponse({ ok: true })
+      return false
+    }
+
     if (msg.type !== 'dlsrv-fetch') return undefined
     ;(async () => {
       try {
