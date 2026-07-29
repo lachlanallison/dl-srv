@@ -151,6 +151,10 @@ export function isTorrentUrl(url) {
   return u.startsWith('magnet:') || u.endsWith('.torrent')
 }
 
+export function isMetadataPhase(task) {
+  return (task?.filename || '').includes('[METADATA]')
+}
+
 export function formatShareRatio(uploaded, downloaded) {
   if (!downloaded || downloaded <= 0) return '0.00'
   return (uploaded / downloaded).toFixed(2)

@@ -23,6 +23,10 @@ aria2c --enable-rpc \
   --bt-enable-lpd=true \
   --listen-port=6881 \
   --dht-listen-port=6882 \
+  --dht-file-path="$CONFIG_DIR/dht.dat" \
+  --save-session="$CONFIG_DIR/aria2.session" \
+  --input-file="$CONFIG_DIR/aria2.session" \
+  --bt-tracker="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce" \
   --seed-ratio=0 \
   --bt-save-metadata=true \
   --disable-ipv6=true \

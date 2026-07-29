@@ -58,6 +58,8 @@ pub struct Aria2Status {
     pub following: String,
     #[serde(rename = "infoHash", default)]
     pub info_hash: String,
+    #[serde(rename = "seeder", default)]
+    pub seeder: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,7 +217,26 @@ impl Aria2Client {
     }
 
     pub async fn tell_status(&self, gid: &str) -> Result<Aria2Status> {
-        let result = self.call("aria2.tellStatus", vec![json!(gid)]).await?;
+        let keys = json!([
+            "gid",
+            "status",
+            "totalLength",
+            "completedLength",
+            "downloadSpeed",
+            "uploadSpeed",
+            "uploadLength",
+            "connections",
+            "numSeeders",
+            "seeder",
+            "files",
+            "errorMessage",
+            "followedBy",
+            "following",
+            "infoHash"
+        ]);
+        let result = self
+            .call("aria2.tellStatus", vec![json!(gid), keys])
+            .await?;
         Ok(serde_json::from_value(result)?)
     }
 
@@ -298,6 +319,10 @@ impl Aria2Client {
     pub async fn find_gid_by_infohash(&self, infohash: &str) -> Result<Option<String>> {
         self.find_best_gid_for_magnet(infohash).await
     }
+}
+
+pub fn is_seeder(st: &Aria2Status) -> bool {
+    matches!(st.seeder.to_ascii_lowercase().as_str(), "true" | "1")
 }
 
 pub fn map_status(s: &str) -> crate::store::TaskStatus {

@@ -12,6 +12,8 @@
 
     isTorrentUrl,
 
+    isMetadataPhase,
+
     formatShareRatio,
 
     WEB_VERSION,
@@ -917,6 +919,22 @@
                   {/if}
 
                 </div>
+
+                {#if task.status === 'completed' && isTorrentUrl(task.url) && task.upload_speed > 0}
+
+                  <div class="muted">Seeding in aria2 · ↑ {formatSpeed(task.upload_speed)}</div>
+
+                {:else if task.status === 'completed' && isTorrentUrl(task.url)}
+
+                  <div class="muted">Download complete · seeding depends on peers/NAT (see Settings → BitTorrent ratio/time)</div>
+
+                {/if}
+
+                {#if isMetadataPhase(task)}
+
+                  <div class="muted">Fetching torrent metadata via DHT… (can take a few minutes; peers often show 0 until this finishes)</div>
+
+                {/if}
 
                 {#if task.error}
 

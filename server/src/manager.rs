@@ -6,7 +6,7 @@ use base64::Engine;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, RwLock};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::aria2::{self, AddOptions, Aria2Client};
 use crate::config::{self, Config};
@@ -134,6 +134,14 @@ impl Manager {
             .unwrap()
             .create_task(&input, task_type, &save_path)?;
         self.emit(&task);
+
+        info!(
+            task_id = %task.id,
+            category = %task.category,
+            backend = %task.task_type.as_str(),
+            url = %log_url(&input.url),
+            "download queued"
+        );
 
         let task_id = task.id.clone();
         let this = Arc::clone(self);
@@ -290,11 +298,18 @@ impl Manager {
         };
 
         if !gid.is_empty() {
-            task.backend_gid = Some(gid);
+            task.backend_gid = Some(gid.clone());
         }
         task.status = TaskStatus::Downloading;
         task.updated_at = Utc::now();
         self.save_and_emit(task)?;
+        info!(
+            task_id = %task.id,
+            gid = %gid,
+            category = %task.category,
+            url = %log_url(&task.url),
+            "aria2 download started"
+        );
         Ok(())
     }
 
@@ -327,6 +342,7 @@ impl Manager {
             task.status = TaskStatus::Downloading;
             task.updated_at = Utc::now();
             self.save_and_emit(&task)?;
+            info!(task_id = %task_id, url = %log_url(&task.url), "yt-dlp download started");
         }
 
         let this = Arc::clone(self);
@@ -368,6 +384,12 @@ impl Manager {
         task.completed_at = Some(Utc::now());
         task.updated_at = Utc::now();
         self.save_and_emit(&task)?;
+        info!(
+            task_id = %task_id_owned,
+            filename = ?task.filename,
+            bytes = task.done_bytes,
+            "yt-dlp download completed"
+        );
 
         let cfg = self.cfg.read().await;
         hooks::on_task_completed(&cfg, &task).await;
@@ -430,10 +452,17 @@ impl Manager {
                 }
             };
             let is_metadata = aria2::is_metadata_status(&st);
+            let is_seeding = aria2::is_seeder(&st);
 
             // Magnet phase 1: metadata download → hand off to the real torrent gid.
             match self.resolve_magnet_content_gid(&gid, &st, &task.url).await {
                 Ok(Some(next)) if next != gid => {
+                    info!(
+                        task_id = %task.id,
+                        metadata_gid = %gid,
+                        content_gid = %next,
+                        "magnet metadata fetched, starting content download"
+                    );
                     task.backend_gid = Some(next);
                     task.status = TaskStatus::Downloading;
                     task.progress = 0.0;
@@ -463,7 +492,7 @@ impl Manager {
             task.total_bytes = total;
             task.done_bytes = done;
             task.speed = speed;
-            if is_torrent_url(&task.url.trim().to_ascii_lowercase()) {
+            if is_bt_task(&task.url) {
                 task.upload_speed = aria2::parse_i64(&st.upload_speed);
                 task.connections = aria2::parse_i64(&st.connections) as i32;
                 task.num_seeders = aria2::parse_i64(&st.num_seeders) as i32;
@@ -485,14 +514,21 @@ impl Manager {
                 task.save_path = path.parent().map(|p| p.to_string_lossy().into_owned());
             }
             task.status = aria2::map_status(&st.status);
+            let download_done = total > 0 && done >= total;
             if is_metadata {
                 task.status = TaskStatus::Downloading;
                 task.completed_at = None;
+            } else if download_done {
+                // aria2 stays "active" while seeding — treat a full download as complete.
+                task.status = TaskStatus::Completed;
+                task.completed_at = Some(task.completed_at.unwrap_or_else(Utc::now));
+                task.progress = 100.0;
+                task.speed = 0;
             }
             if task.status == TaskStatus::Failed && !st.error_message.is_empty() {
                 task.error = Some(st.error_message);
             }
-            if task.status == TaskStatus::Completed && !is_metadata {
+            if task.status == TaskStatus::Completed && !is_metadata && task.completed_at.is_none() {
                 task.completed_at = Some(Utc::now());
                 task.progress = 100.0;
             }
@@ -503,11 +539,26 @@ impl Manager {
                 if is_metadata {
                     continue;
                 }
+                info!(
+                    task_id = %task.id,
+                    filename = ?task.filename,
+                    bytes = task.done_bytes,
+                    seeding = is_seeding,
+                    upload_speed = task.upload_speed,
+                    peers = task.connections,
+                    "download completed"
+                );
                 let cfg = self.cfg.read().await;
                 hooks::on_task_completed(&cfg, &task).await;
             }
 
             if task.status == TaskStatus::Failed && prev_status != TaskStatus::Failed {
+                info!(
+                    task_id = %task.id,
+                    error = ?task.error,
+                    url = %log_url(&task.url),
+                    "download failed"
+                );
                 let lower = task.url.trim().to_ascii_lowercase();
                 if lower.starts_with("magnet:") || is_torrent_url(&lower) {
                     continue;
@@ -524,6 +575,30 @@ impl Manager {
                 }
             }
         }
+
+        // Keep upload stats fresh for completed torrents still seeding in aria2.
+        let completed = self.store.lock().unwrap().list_tasks(50, Some("completed"))?;
+        for mut task in completed {
+            if task.task_type != TaskType::Aria2 || !is_bt_task(&task.url) {
+                continue;
+            }
+            let Some(gid) = task.backend_gid.clone() else {
+                continue;
+            };
+            let Ok(st) = self.aria2.tell_status(&gid).await else {
+                continue;
+            };
+            if !aria2::is_seeder(&st) {
+                continue;
+            }
+            task.upload_speed = aria2::parse_i64(&st.upload_speed);
+            task.connections = aria2::parse_i64(&st.connections) as i32;
+            task.num_seeders = aria2::parse_i64(&st.num_seeders) as i32;
+            task.uploaded_bytes = aria2::parse_i64(&st.upload_length);
+            task.updated_at = Utc::now();
+            self.save_and_emit(&task)?;
+        }
+
         Ok(())
     }
 
@@ -612,6 +687,15 @@ fn infer_referer(url: &str, referer: Option<String>) -> Option<String> {
         .map(|u| format!("{}/", u.origin().ascii_serialization()))
 }
 
+fn log_url(url: &str) -> String {
+    let u = url.trim();
+    if u.len() <= 100 {
+        u.to_string()
+    } else {
+        format!("{}…", &u[..100])
+    }
+}
+
 fn magnet_infohash(url: &str) -> Option<String> {
     let lower = url.trim().to_ascii_lowercase();
     let pos = lower.find("xt=urn:btih:")?;
@@ -627,6 +711,11 @@ fn is_torrent_url(lower: &str) -> bool {
     lower.ends_with(".torrent")
         || lower.contains(".torrent?")
         || lower.contains(".torrent&")
+}
+
+fn is_bt_task(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    lower.starts_with("magnet:") || is_torrent_url(&lower)
 }
 
 async fn fetch_torrent_b64(url: &str) -> Result<String> {
