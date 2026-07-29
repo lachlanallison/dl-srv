@@ -26,6 +26,15 @@ pub struct Config {
     pub rate_limit_per_minute: u32,
     pub qbit_username: String,
     pub qbit_password: String,
+    /// Stop seeding when upload/download ratio reaches this (0 = no ratio limit).
+    pub bt_seed_ratio: f64,
+    /// Minutes to seed after download completes (0 = until ratio is met).
+    pub bt_seed_time: u32,
+    pub bt_max_peers: u32,
+    /// KiB/s; 0 = unlimited.
+    pub max_upload_kbps: u32,
+    /// KiB/s; 0 = unlimited.
+    pub max_download_kbps: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -44,6 +53,11 @@ struct FileConfig {
     rate_limit_per_minute: Option<u32>,
     qbit_username: Option<String>,
     qbit_password: Option<String>,
+    bt_seed_ratio: Option<f64>,
+    bt_seed_time: Option<u32>,
+    bt_max_peers: Option<u32>,
+    max_upload_kbps: Option<u32>,
+    max_download_kbps: Option<u32>,
 }
 
 impl Config {
@@ -68,6 +82,11 @@ impl Config {
             rate_limit_per_minute: 60,
             qbit_username: "admin".into(),
             qbit_password: "adminadmin".into(),
+            bt_seed_ratio: 0.0,
+            bt_seed_time: 0,
+            bt_max_peers: 55,
+            max_upload_kbps: 0,
+            max_download_kbps: 0,
         };
 
         fs::create_dir_all(&cfg.config_dir).context("create config dir")?;
@@ -115,6 +134,21 @@ impl Config {
             if let Some(v) = fc.qbit_password {
                 cfg.qbit_password = v;
             }
+            if let Some(v) = fc.bt_seed_ratio {
+                cfg.bt_seed_ratio = v;
+            }
+            if let Some(v) = fc.bt_seed_time {
+                cfg.bt_seed_time = v;
+            }
+            if let Some(v) = fc.bt_max_peers {
+                cfg.bt_max_peers = v;
+            }
+            if let Some(v) = fc.max_upload_kbps {
+                cfg.max_upload_kbps = v;
+            }
+            if let Some(v) = fc.max_download_kbps {
+                cfg.max_download_kbps = v;
+            }
         }
 
         let custom_ytdlp = cfg.config_dir.join("bin").join("yt-dlp");
@@ -150,6 +184,11 @@ impl Config {
             rate_limit_per_minute: Some(self.rate_limit_per_minute),
             qbit_username: Some(self.qbit_username.clone()),
             qbit_password: Some(self.qbit_password.clone()),
+            bt_seed_ratio: Some(self.bt_seed_ratio),
+            bt_seed_time: Some(self.bt_seed_time),
+            bt_max_peers: Some(self.bt_max_peers),
+            max_upload_kbps: Some(self.max_upload_kbps),
+            max_download_kbps: Some(self.max_download_kbps),
         };
         let data = serde_json::to_string_pretty(&fc)?;
         fs::write(self.config_dir.join("config.json"), data)?;
@@ -169,6 +208,16 @@ impl Config {
             category
         };
         self.download_dir.join(cat)
+    }
+
+    pub fn bt_settings(&self) -> crate::aria2::BtSettings {
+        crate::aria2::BtSettings {
+            seed_ratio: self.bt_seed_ratio,
+            seed_time: self.bt_seed_time,
+            max_peers: self.bt_max_peers,
+            max_upload_limit: (self.max_upload_kbps as i64) * 1024,
+            max_download_limit: (self.max_download_kbps as i64) * 1024,
+        }
     }
 }
 
@@ -198,6 +247,11 @@ pub fn settings_public(cfg: &Config) -> serde_json::Value {
         "cors_origins": cfg.cors_origins,
         "rate_limit_per_minute": cfg.rate_limit_per_minute,
         "qbit_username": cfg.qbit_username,
+        "bt_seed_ratio": cfg.bt_seed_ratio,
+        "bt_seed_time": cfg.bt_seed_time,
+        "bt_max_peers": cfg.bt_max_peers,
+        "max_upload_kbps": cfg.max_upload_kbps,
+        "max_download_kbps": cfg.max_download_kbps,
     });
     if !cfg.setup_complete {
         if let Some(map) = obj.as_object_mut() {

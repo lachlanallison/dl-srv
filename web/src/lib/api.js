@@ -144,6 +144,16 @@ export function formatSpeed(n) {
   return `${formatBytes(n)}/s`
 }
 
+export function isTorrentUrl(url) {
+  const u = (url || '').trim().toLowerCase()
+  return u.startsWith('magnet:') || u.endsWith('.torrent')
+}
+
+export function formatShareRatio(uploaded, downloaded) {
+  if (!downloaded || downloaded <= 0) return '0.00'
+  return (uploaded / downloaded).toFixed(2)
+}
+
 export const QUALITY_PRESETS = [
   { value: 'best', label: 'Best available' },
   { value: '1080p', label: '1080p max' },

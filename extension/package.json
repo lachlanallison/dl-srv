@@ -9,6 +9,7 @@
     "sign": "web-ext sign --source-dir dist/amo --api-key $AMO_JWT_ISSUER --api-secret $AMO_JWT_SECRET"
   },
   "devDependencies": {
-    "web-ext": "^8.0.0"
+    "adm-zip": "^0.5.16",
+    "web-ext": "^10.5.0"
   }
 }

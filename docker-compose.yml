@@ -5,6 +5,10 @@ services:
       dockerfile: deploy/Dockerfile
     ports:
       - "35778:35778"
+      # Optional: improves torrent peer connectivity (forward on router if exposing NAS)
+      - "6881:6881"
+      - "6881:6881/udp"
+      - "6882:6882/udp"
     volumes:
       # Host paths from .env — see .env.example for TrueNAS layout
       - ${HOST_MEDIA_PATH:-./data/downloads}:/media

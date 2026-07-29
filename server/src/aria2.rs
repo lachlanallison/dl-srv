@@ -41,9 +41,23 @@ pub struct Aria2Status {
     pub completed_length: String,
     #[serde(rename = "downloadSpeed")]
     pub download_speed: String,
+    #[serde(rename = "uploadSpeed", default)]
+    pub upload_speed: String,
+    #[serde(rename = "connections", default)]
+    pub connections: String,
+    #[serde(rename = "numSeeders", default)]
+    pub num_seeders: String,
+    #[serde(rename = "uploadLength", default)]
+    pub upload_length: String,
     pub files: Vec<Aria2File>,
     #[serde(rename = "errorMessage", default)]
     pub error_message: String,
+    #[serde(rename = "followedBy", default)]
+    pub followed_by: Vec<String>,
+    #[serde(rename = "following", default)]
+    pub following: String,
+    #[serde(rename = "infoHash", default)]
+    pub info_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,10 +72,49 @@ pub struct AddOptions {
     pub referer: Option<String>,
     pub filename: Option<String>,
     pub cookies: Option<String>,
+    /// Magnet/torrent: skip HTTP headers, enable bt-save-metadata.
+    pub bt: bool,
+    pub bt_settings: Option<BtSettings>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BtSettings {
+    pub seed_ratio: f64,
+    pub seed_time: u32,
+    pub max_peers: u32,
+    pub max_upload_limit: i64,
+    pub max_download_limit: i64,
+}
+
+impl BtSettings {
+    fn option_map(&self) -> serde_json::Map<String, Value> {
+        let mut map = serde_json::Map::new();
+        map.insert("seed-ratio".into(), json!(format!("{:.2}", self.seed_ratio)));
+        map.insert("seed-time".into(), json!(self.seed_time.to_string()));
+        map.insert("bt-max-peers".into(), json!(self.max_peers.to_string()));
+        map.insert(
+            "max-upload-limit".into(),
+            json!(self.max_upload_limit.to_string()),
+        );
+        map.insert(
+            "max-download-limit".into(),
+            json!(self.max_download_limit.to_string()),
+        );
+        map
+    }
 }
 
 fn download_options(opts: AddOptions) -> Value {
     let mut options = json!({ "dir": opts.dir });
+    if opts.bt {
+        options["bt-save-metadata"] = json!("true");
+        if let Some(bt) = opts.bt_settings {
+            if let Value::Object(ref mut base) = options {
+                base.extend(bt.option_map());
+            }
+        }
+        return options;
+    }
     let mut headers = vec![format!("User-Agent: {BROWSER_UA}")];
     if let Some(c) = opts.cookies.filter(|c| !c.is_empty()) {
         headers.push(format!("Cookie: {c}"));
@@ -152,6 +205,15 @@ impl Aria2Client {
             .context("aria2 gid not string")
     }
 
+    pub async fn change_global_bt_options(&self, bt: &BtSettings) -> Result<()> {
+        self.call(
+            "aria2.changeGlobalOption",
+            vec![Value::Object(bt.option_map())],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn tell_status(&self, gid: &str) -> Result<Aria2Status> {
         let result = self.call("aria2.tellStatus", vec![json!(gid)]).await?;
         Ok(serde_json::from_value(result)?)
@@ -171,6 +233,64 @@ impl Aria2Client {
         self.call("aria2.remove", vec![json!(gid)]).await?;
         Ok(())
     }
+
+    async fn list_gids(&self) -> Result<Vec<String>> {
+        let mut gids = Vec::new();
+        for method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellPaused"] {
+            let result = self.call(method, vec![]).await?;
+            if let Some(arr) = result.as_array() {
+                for v in arr {
+                    if let Some(s) = v.as_str() {
+                        gids.push(s.to_string());
+                    }
+                }
+            }
+        }
+        Ok(gids)
+    }
+
+    pub async fn find_gid_following(&self, parent_gid: &str) -> Result<Option<String>> {
+        for gid in self.list_gids().await? {
+            let st = self.tell_status(&gid).await?;
+            if st.following == parent_gid {
+                return Ok(Some(gid));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn find_best_gid_for_magnet(&self, infohash: &str) -> Result<Option<String>> {
+        let want = infohash.trim().to_ascii_lowercase();
+        if want.is_empty() {
+            return Ok(None);
+        }
+
+        let mut content: Vec<(String, i64)> = Vec::new();
+        let mut metadata_gid: Option<String> = None;
+        for gid in self.list_gids().await? {
+            let st = self.tell_status(&gid).await?;
+            if st.info_hash.to_ascii_lowercase() != want {
+                continue;
+            }
+            if !st.followed_by.is_empty() {
+                return Ok(Some(st.followed_by[0].clone()));
+            }
+            if is_metadata_status(&st) {
+                metadata_gid = Some(gid);
+                continue;
+            }
+            content.push((gid, parse_i64(&st.total_length)));
+        }
+        content.sort_by_key(|(_, total)| std::cmp::Reverse(*total));
+        Ok(content
+            .first()
+            .map(|(g, _)| g.clone())
+            .or(metadata_gid))
+    }
+
+    pub async fn find_gid_by_infohash(&self, infohash: &str) -> Result<Option<String>> {
+        self.find_best_gid_for_magnet(infohash).await
+    }
 }
 
 pub fn map_status(s: &str) -> crate::store::TaskStatus {
@@ -184,4 +304,11 @@ pub fn map_status(s: &str) -> crate::store::TaskStatus {
 
 pub fn parse_i64(s: &str) -> i64 {
     s.parse().unwrap_or(0)
+}
+
+/// True when aria2 is fetching or finished fetching torrent metadata (not the files).
+pub fn is_metadata_status(st: &Aria2Status) -> bool {
+    st.files
+        .first()
+        .is_some_and(|f| f.path.contains("[METADATA]"))
 }

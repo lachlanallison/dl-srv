@@ -17,6 +17,7 @@
     saveSettings,
     CATEGORY_PRESETS,
     cleanFilenameHint,
+    magnetLabel,
     getPendingDownload,
   } = globalThis.dlsrv
 
@@ -106,10 +107,11 @@
       return
     }
 
-    const displayName =
-      cleanFilenameHint(pending.filename || pending.url) ||
-      pending.filename ||
-      pending.url
+    const displayName = pending.url.startsWith('magnet:')
+      ? magnetLabel(pending.url)
+      : cleanFilenameHint(pending.filename || pending.url) ||
+        pending.filename ||
+        pending.url
     filenameEl.textContent = displayName
 
     const settings = await getSettings()

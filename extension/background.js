@@ -26,6 +26,8 @@
 
   const bypassUrls = new Set()
   const browserReleaseIds = new Set()
+  const recentMagnets = new Set()
+  const tabLastHttpUrl = new Map()
   let promptWindowId = null
   let promptPendingId = null
   let finishingPendingId = null
@@ -38,6 +40,13 @@
   }
 
   function releasePendingToBrowser(pending) {
+    if (pending.url.startsWith('magnet:')) {
+      markBypass(pending.url)
+      ext.tabs.create({ url: pending.url })
+      notify('Opened magnet link', globalThis.dlsrv.magnetLabel(pending.url))
+      return
+    }
+
     notify('Downloading in browser', pending.filename || pending.url)
 
     if (pending.downloadId == null) {
@@ -171,6 +180,65 @@
     promptWindowId = win.id
   }
 
+  async function queueIntercept(pending, settings) {
+    if (!settings.askOnIntercept) {
+      await postTask({
+        url: pending.url,
+        referer: pending.referer,
+        filename: pending.filename,
+        category: settings.category,
+      })
+      const label =
+        pending.url.startsWith('magnet:') ?
+          globalThis.dlsrv.magnetLabel(pending.url)
+        : pending.filename || pending.url
+      notify('Sent to dl-srv', label)
+      return
+    }
+    await enqueuePendingDownload(pending)
+    await updatePendingBadge()
+    await openPromptFor(pending.id)
+  }
+
+  async function handleMagnetNavigation(url, tabId, referer) {
+    if (!url?.startsWith('magnet:') || bypassUrls.has(url)) return
+    if (recentMagnets.has(url)) return
+    recentMagnets.add(url)
+    setTimeout(() => recentMagnets.delete(url), 5000)
+
+    const settings = await getSettings()
+    if (!settings.enabled || settings.interceptMagnets === false) return
+
+    ext.tabs.goBack(tabId).catch(() => {
+      ext.tabs.update(tabId, { url: 'about:blank' }).catch(() => {})
+    })
+
+    const pending = {
+      id: makePendingId(),
+      downloadId: null,
+      url,
+      referer,
+      filename: undefined,
+      createdAt: Date.now(),
+    }
+    await queueIntercept(pending, settings)
+  }
+
+  if (ext.tabs?.onUpdated) {
+    ext.tabs.onUpdated.addListener((tabId, changeInfo) => {
+      const url = changeInfo.url
+      if (url && !url.startsWith('magnet:')) {
+        tabLastHttpUrl.set(tabId, url)
+        return
+      }
+      if (!url?.startsWith('magnet:')) return
+      handleMagnetNavigation(url, tabId, tabLastHttpUrl.get(tabId)).catch((e) => {
+        console.error('[dl-srv] magnet intercept', e)
+      })
+    })
+    ext.tabs.onRemoved.addListener((tabId) => tabLastHttpUrl.delete(tabId))
+  }
+
   async function showNextPrompt() {
     const queue = await getPendingQueue()
     await updatePendingBadge()
@@ -209,6 +277,23 @@
 
         if (url.startsWith('data:') || url.startsWith('blob:')) return
 
+        if (url.startsWith('magnet:')) {
+          await ext.downloads.cancel(item.id).catch(() => {})
+          await ext.downloads.erase({ id: item.id }).catch(() => {})
+          if (settings.interceptMagnets !== false) {
+            const pending = {
+              id: makePendingId(),
+              downloadId: null,
+              url,
+              referer: item.referrer || undefined,
+              filename: undefined,
+              createdAt: Date.now(),
+            }
+            await queueIntercept(pending, settings)
+          }
+          return
+        }
+
         const host = hostOf(url)
         if (settings.ignoreDomains.includes(host)) return
 
@@ -233,9 +318,7 @@
         }
 
         const pending = await holdDownload(item)
-        await enqueuePendingDownload(pending)
-        await updatePendingBadge()
-        await openPromptFor(pending.id)
+        await queueIntercept(pending, settings)
       } catch (e) {
         console.error('[dl-srv] download intercept', e)
         const { debugLog } = globalThis.dlsrv

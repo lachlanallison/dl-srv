@@ -1,0 +1,3 @@
+# Limit parallel rustc jobs so local builds don't saturate the machine.
+[build]
+jobs = 2

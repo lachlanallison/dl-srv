@@ -274,6 +274,11 @@ struct SetupBody {
     rate_limit_per_minute: Option<u32>,
     qbit_username: Option<String>,
     qbit_password: Option<String>,
+    bt_seed_ratio: Option<f64>,
+    bt_seed_time: Option<u32>,
+    bt_max_peers: Option<u32>,
+    max_upload_kbps: Option<u32>,
+    max_download_kbps: Option<u32>,
 }
 
 async fn post_setup(
@@ -295,6 +300,11 @@ async fn post_setup(
             rate_limit_per_minute: body.rate_limit_per_minute,
             qbit_username: body.qbit_username,
             qbit_password: body.qbit_password,
+            bt_seed_ratio: body.bt_seed_ratio,
+            bt_seed_time: body.bt_seed_time,
+            bt_max_peers: body.bt_max_peers,
+            max_upload_kbps: body.max_upload_kbps,
+            max_download_kbps: body.max_download_kbps,
         });
         if let Some(t) = body.token {
             if !t.is_empty() {
@@ -322,6 +332,11 @@ struct UpdateSettingsBody {
     rate_limit_per_minute: Option<u32>,
     qbit_username: Option<String>,
     qbit_password: Option<String>,
+    bt_seed_ratio: Option<f64>,
+    bt_seed_time: Option<u32>,
+    bt_max_peers: Option<u32>,
+    max_upload_kbps: Option<u32>,
+    max_download_kbps: Option<u32>,
 }
 
 fn apply_settings(cfg: &mut Config, body: &UpdateSettingsBody) {
@@ -361,6 +376,21 @@ fn apply_settings(cfg: &mut Config, body: &UpdateSettingsBody) {
     if let Some(v) = &body.qbit_password {
         cfg.qbit_password = v.clone();
     }
+    if let Some(v) = body.bt_seed_ratio {
+        cfg.bt_seed_ratio = v.max(0.0);
+    }
+    if let Some(v) = body.bt_seed_time {
+        cfg.bt_seed_time = v;
+    }
+    if let Some(v) = body.bt_max_peers {
+        cfg.bt_max_peers = v.clamp(1, 1000);
+    }
+    if let Some(v) = body.max_upload_kbps {
+        cfg.max_upload_kbps = v;
+    }
+    if let Some(v) = body.max_download_kbps {
+        cfg.max_download_kbps = v;
+    }
 }
 
 async fn update_settings(
@@ -371,6 +401,9 @@ async fn update_settings(
         let mut cfg = state.cfg.write().await;
         apply_settings(&mut cfg, &body);
         cfg.save().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    if let Err(e) = state.manager.apply_bt_settings().await {
+        tracing::warn!(err = %e, "failed to apply aria2 bt settings");
     }
     state.manager.version_checker().invalidate().await;
     Ok(get_settings(State(state)).await)

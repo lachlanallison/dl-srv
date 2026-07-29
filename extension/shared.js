@@ -10,6 +10,7 @@ const DEFAULTS = {
   category: 'inbox',
   lastCategory: '',
   enabled: true,
+  interceptMagnets: true,
   askOnIntercept: true,
   minSize: 0,
   ignoreExt: ['html', 'htm', 'txt', 'css', 'js', 'json'],
@@ -31,6 +32,20 @@ function cleanFilenameHint(raw) {
   } catch {
     return name
   }
+}
+
+function magnetLabel(url) {
+  if (!url?.startsWith('magnet:')) return url || ''
+  try {
+    const q = url.split('?')[1] || ''
+    for (const part of q.split('&')) {
+      const [key, val] = part.split('=')
+      if (key === 'dn' && val) return decodeURIComponent(val.replace(/\+/g, ' '))
+    }
+  } catch {
+    /* ignore */
+  }
+  return url.length > 72 ? `${url.slice(0, 69)}…` : url
 }
 
 function actionApi() {
@@ -376,6 +391,7 @@ globalThis.dlsrv = {
   DEFAULTS,
   CATEGORY_PRESETS,
   cleanFilenameHint,
+  magnetLabel,
   extensionVersion,
   getSettings,
   saveSettings,

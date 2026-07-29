@@ -83,6 +83,14 @@ pub struct Task {
     pub done_bytes: i64,
     pub total_bytes: i64,
     pub speed: i64,
+    #[serde(default)]
+    pub upload_speed: i64,
+    #[serde(default)]
+    pub connections: i32,
+    #[serde(default)]
+    pub num_seeders: i32,
+    #[serde(default)]
+    pub uploaded_bytes: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,6 +154,10 @@ impl Store {
                 done_bytes INTEGER NOT NULL DEFAULT 0,
                 total_bytes INTEGER NOT NULL DEFAULT 0,
                 speed INTEGER NOT NULL DEFAULT 0,
+                upload_speed INTEGER NOT NULL DEFAULT 0,
+                connections INTEGER NOT NULL DEFAULT 0,
+                num_seeders INTEGER NOT NULL DEFAULT 0,
+                uploaded_bytes INTEGER NOT NULL DEFAULT 0,
                 error TEXT,
                 referer TEXT,
                 quality TEXT,
@@ -204,6 +216,10 @@ impl Store {
             done_bytes: 0,
             total_bytes: 0,
             speed: 0,
+            upload_speed: 0,
+            connections: 0,
+            num_seeders: 0,
+            uploaded_bytes: 0,
             error: None,
             referer: input.referer.clone(),
             quality: input.quality.clone(),
@@ -235,8 +251,8 @@ impl Store {
 
     pub fn list_tasks(&self, limit: i64, status: Option<&str>) -> Result<Vec<Task>> {
         const COLS: &str = "id, url, type, status, backend_gid, category, filename, save_path,
-                    progress, done_bytes, total_bytes, speed, error, referer, quality, source,
-                    created_at, updated_at, completed_at";
+                    progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
+                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at";
         let mut stmt = match status {
             Some("active") => self.conn.prepare(&format!(
                 "SELECT {COLS} FROM tasks WHERE status IN ('pending', 'downloading', 'paused')
@@ -261,8 +277,8 @@ impl Store {
         self.conn
             .query_row(
                 "SELECT id, url, type, status, backend_gid, category, filename, save_path,
-                        progress, done_bytes, total_bytes, speed, error, referer, quality, source,
-                        created_at, updated_at, completed_at
+                        progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
+                        uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at
                  FROM tasks WHERE id = ?1",
                 [id],
                 row_to_task,
@@ -273,8 +289,8 @@ impl Store {
     pub fn active_tasks(&self) -> Result<Vec<Task>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, type, status, backend_gid, category, filename, save_path,
-                    progress, done_bytes, total_bytes, speed, error, referer, quality, source,
-                    created_at, updated_at, completed_at
+                    progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
+                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at
              FROM tasks WHERE status IN ('pending', 'downloading', 'paused')",
         )?;
         let rows = stmt.query_map([], row_to_task)?;
@@ -284,9 +300,10 @@ impl Store {
     pub fn update_task(&self, task: &Task) -> Result<()> {
         self.conn.execute(
             "UPDATE tasks SET status=?1, backend_gid=?2, filename=?3, save_path=?4, progress=?5,
-             done_bytes=?6, total_bytes=?7, speed=?8, error=?9, quality=?10, source=?11,
-             updated_at=?12, completed_at=?13
-             WHERE id=?14",
+             done_bytes=?6, total_bytes=?7, speed=?8, upload_speed=?9, connections=?10,
+             num_seeders=?11, uploaded_bytes=?12, error=?13, quality=?14, source=?15, updated_at=?16,
+             completed_at=?17
+             WHERE id=?18",
             params![
                 task.status.as_str(),
                 task.backend_gid,
@@ -296,6 +313,10 @@ impl Store {
                 task.done_bytes,
                 task.total_bytes,
                 task.speed,
+                task.upload_speed,
+                task.connections,
+                task.num_seeders,
+                task.uploaded_bytes,
                 task.error,
                 task.quality,
                 task.source,
@@ -483,6 +504,30 @@ fn migrate_tasks(conn: &Connection) -> Result<()> {
     if !cols.iter().any(|c| c == "source") {
         conn.execute("ALTER TABLE tasks ADD COLUMN source TEXT", [])?;
     }
+    if !cols.iter().any(|c| c == "upload_speed") {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN upload_speed INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !cols.iter().any(|c| c == "connections") {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN connections INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !cols.iter().any(|c| c == "num_seeders") {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN num_seeders INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !cols.iter().any(|c| c == "uploaded_bytes") {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN uploaded_bytes INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -500,18 +545,22 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         done_bytes: row.get(9)?,
         total_bytes: row.get(10)?,
         speed: row.get(11)?,
-        error: row.get(12)?,
-        referer: row.get(13)?,
-        quality: row.get(14)?,
-        source: row.get(15)?,
-        created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
+        upload_speed: row.get(12)?,
+        connections: row.get(13)?,
+        num_seeders: row.get(14)?,
+        uploaded_bytes: row.get(15)?,
+        error: row.get(16)?,
+        referer: row.get(17)?,
+        quality: row.get(18)?,
+        source: row.get(19)?,
+        created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(20)?)
             .map(|d| d.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
-        updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(17)?)
+        updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(21)?)
             .map(|d| d.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
         completed_at: row
-            .get::<_, Option<String>>(18)?
+            .get::<_, Option<String>>(22)?
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
     })
 }

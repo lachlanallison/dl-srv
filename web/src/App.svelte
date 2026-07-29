@@ -10,6 +10,10 @@
 
     formatSpeed,
 
+    isTorrentUrl,
+
+    formatShareRatio,
+
     getToken,
 
     setToken,
@@ -233,6 +237,16 @@
       webhook_enabled: !!settings.webhook_enabled,
 
       jellyfin_refresh_url: settings.jellyfin_refresh_url || '',
+
+      bt_seed_ratio: settings.bt_seed_ratio ?? 0,
+
+      bt_seed_time: settings.bt_seed_time ?? 0,
+
+      bt_max_peers: settings.bt_max_peers ?? 55,
+
+      max_upload_kbps: settings.max_upload_kbps ?? 0,
+
+      max_download_kbps: settings.max_download_kbps ?? 0,
 
     }
 
@@ -489,6 +503,16 @@
         webhook_enabled: settingsForm.webhook_enabled,
 
         jellyfin_refresh_url: settingsForm.jellyfin_refresh_url || null,
+
+        bt_seed_ratio: Number(settingsForm.bt_seed_ratio),
+
+        bt_seed_time: Number(settingsForm.bt_seed_time),
+
+        bt_max_peers: Number(settingsForm.bt_max_peers),
+
+        max_upload_kbps: Number(settingsForm.max_upload_kbps),
+
+        max_download_kbps: Number(settingsForm.max_download_kbps),
 
       })
 
@@ -862,7 +886,21 @@
 
                 <div class="muted">
 
-                  {formatBytes(task.done_bytes)} / {formatBytes(task.total_bytes)} · {formatSpeed(task.speed)}
+                  {formatBytes(task.done_bytes)} / {formatBytes(task.total_bytes)}
+
+                  {#if isTorrentUrl(task.url)}
+
+                    · ↓ {formatSpeed(task.speed)} · ↑ {formatSpeed(task.upload_speed)}
+
+                    · {task.connections ?? 0} peers · {task.num_seeders ?? 0} seeders
+
+                    · ratio {formatShareRatio(task.uploaded_bytes ?? 0, task.done_bytes)}
+
+                  {:else}
+
+                    · {formatSpeed(task.speed)}
+
+                  {/if}
 
                 </div>
 
@@ -1017,6 +1055,48 @@
           <div class="muted">Jellyfin library refresh URL</div>
 
           <input bind:value={settingsForm.jellyfin_refresh_url} placeholder="http://jellyfin:8096/Library/Refresh" />
+
+        </label>
+
+        <h3>BitTorrent</h3>
+
+        <label>
+
+          <div class="muted">Seed ratio (0 = no ratio limit)</div>
+
+          <input type="number" min="0" step="0.1" bind:value={settingsForm.bt_seed_ratio} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Seed time after complete (minutes, 0 = until ratio is met)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.bt_seed_time} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max peers per torrent</div>
+
+          <input type="number" min="1" max="1000" step="1" bind:value={settingsForm.bt_max_peers} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max upload speed (KiB/s, 0 = unlimited)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.max_upload_kbps} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Max download speed (KiB/s, 0 = unlimited)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.max_download_kbps} />
 
         </label>
 

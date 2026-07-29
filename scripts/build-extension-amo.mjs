@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Build a clean ZIP for Mozilla Add-ons upload.
+ * Uses `web-ext build` so archive paths use forward slashes (AMO rejects Windows backslashes).
  */
 import fs from 'fs'
 import path from 'path'
@@ -10,7 +11,8 @@ import { execSync } from 'child_process'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const extDir = path.join(repoRoot, 'extension')
 const staging = path.join(extDir, 'dist', 'amo')
-const zipPath = path.join(extDir, 'dist', 'dl-srv-firefox.zip')
+const distDir = path.join(extDir, 'dist')
+const zipPath = path.join(distDir, 'dl-srv-firefox.zip')
 
 const include = [
   'background.js',
@@ -27,8 +29,8 @@ const include = [
   'icons/icon128.png',
 ]
 
-function rmrf(dir) {
-  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+function rmrf(target) {
+  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true })
 }
 
 rmrf(staging)
@@ -51,13 +53,35 @@ for (const rel of include) {
 }
 
 rmrf(zipPath)
-if (process.platform === 'win32') {
-  execSync(
-    `powershell -NoProfile -Command "Compress-Archive -Path '${staging}\\*' -DestinationPath '${zipPath}' -Force"`,
-    { stdio: 'inherit' },
-  )
-} else {
-  execSync(`cd "${staging}" && zip -r "${zipPath}" .`, { stdio: 'inherit' })
+
+execSync(
+  [
+    'npx web-ext build',
+    `--source-dir "${staging}"`,
+    `--artifacts-dir "${distDir}"`,
+    '--filename dl-srv-firefox.zip',
+    '--overwrite-dest',
+  ].join(' '),
+  { cwd: extDir, stdio: 'inherit', shell: true },
+)
+
+if (!fs.existsSync(zipPath)) {
+  console.error(`Expected zip not found: ${zipPath}`)
+  process.exit(1)
+}
+
+// Fail the build if any entry uses backslashes (AMO general test).
+const { createRequire } = await import('module')
+const require = createRequire(path.join(extDir, 'package.json'))
+const AdmZip = require('adm-zip')
+const bad = new AdmZip(zipPath)
+  .getEntries()
+  .map((e) => e.entryName)
+  .filter((name) => name.includes('\\'))
+
+if (bad.length) {
+  console.error('Invalid ZIP paths (backslashes):', bad.join(', '))
+  process.exit(1)
 }
 
 console.log(`Built ${zipPath}`)

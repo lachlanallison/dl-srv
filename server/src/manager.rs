@@ -84,6 +84,13 @@ impl Manager {
     pub fn start_background_tasks(self: &Arc<Self>) {
         let this = Arc::clone(self);
         tokio::spawn(async move {
+            if let Err(e) = this.apply_bt_settings().await {
+                warn!(err = %e, "aria2 bt settings apply failed");
+            }
+        });
+
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
             loop {
                 tick.tick().await;
@@ -100,6 +107,13 @@ impl Manager {
 
     pub fn version_checker(&self) -> Arc<VersionChecker> {
         self.version_checker.clone()
+    }
+
+    pub async fn apply_bt_settings(&self) -> Result<()> {
+        let cfg = self.cfg.read().await;
+        self.aria2
+            .change_global_bt_options(&cfg.bt_settings())
+            .await
     }
 
     pub async fn add_task(self: &Arc<Self>, input: AddTaskInput) -> Result<Task> {
@@ -225,6 +239,7 @@ impl Manager {
     ) -> Result<()> {
         let cfg = self.cfg.read().await;
         let dir = cfg.category_dir(&task.category).to_string_lossy().into_owned();
+        let bt_settings = cfg.bt_settings();
         let referer = infer_referer(&task.url, task.referer.clone());
         drop(cfg);
 
@@ -235,27 +250,47 @@ impl Manager {
             None
         };
 
-        let opts = |referer: Option<String>| AddOptions {
+        let opts = |referer: Option<String>, bt: bool| AddOptions {
             dir: dir.clone(),
             referer,
             filename: filename.clone(),
             cookies: cookies.clone(),
+            bt,
+            bt_settings: if bt { Some(bt_settings) } else { None },
         };
 
         let gid = if lower.starts_with("magnet:") {
-            self.aria2
-                .add_uri(vec![task.url.clone()], opts(referer))
-                .await?
+            if let Some(hash) = magnet_infohash(&task.url) {
+                if let Some(existing) = self.aria2.find_gid_by_infohash(&hash).await? {
+                    existing
+                } else {
+                    match self.aria2.add_uri(vec![task.url.clone()], opts(None, true)).await {
+                        Ok(gid) => gid,
+                        Err(e) if e.to_string().contains("already registered") => self
+                            .aria2
+                            .find_gid_by_infohash(&hash)
+                            .await?
+                            .unwrap_or_default(),
+                        Err(e) => return Err(e),
+                    }
+                }
+            } else {
+                self.aria2
+                    .add_uri(vec![task.url.clone()], opts(None, true))
+                    .await?
+            }
         } else if is_torrent_url(&lower) {
             let b64 = fetch_torrent_b64(&task.url).await?;
-            self.aria2.add_torrent(&b64, opts(referer)).await?
+            self.aria2.add_torrent(&b64, opts(referer, true)).await?
         } else {
             self.aria2
-                .add_uri(vec![task.url.clone()], opts(referer))
+                .add_uri(vec![task.url.clone()], opts(referer, false))
                 .await?
         };
 
-        task.backend_gid = Some(gid);
+        if !gid.is_empty() {
+            task.backend_gid = Some(gid);
+        }
         task.status = TaskStatus::Downloading;
         task.updated_at = Utc::now();
         self.save_and_emit(task)?;
@@ -338,23 +373,96 @@ impl Manager {
         Ok(())
     }
 
+    async fn resolve_magnet_content_gid(
+        &self,
+        gid: &str,
+        st: &aria2::Aria2Status,
+        url: &str,
+    ) -> Result<Option<String>> {
+        if !st.followed_by.is_empty() {
+            return Ok(Some(st.followed_by[0].clone()));
+        }
+        if let Some(next) = self.aria2.find_gid_following(gid).await? {
+            return Ok(Some(next));
+        }
+        if aria2::is_metadata_status(st) {
+            if let Some(hash) = magnet_infohash(url) {
+                if let Some(next) = self.aria2.find_best_gid_for_magnet(&hash).await? {
+                    if next != gid {
+                        return Ok(Some(next));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     async fn poll_aria2(self: &Arc<Self>) -> Result<()> {
         let active = self.store.lock().unwrap().active_tasks()?;
         for mut task in active {
             if task.task_type != TaskType::Aria2 {
                 continue;
             }
-            let Some(gid) = task.backend_gid.clone() else {
-                continue;
+            let gid = match task.backend_gid.clone() {
+                Some(g) => g,
+                None if task.url.starts_with("magnet:") => {
+                    if let Some(hash) = magnet_infohash(&task.url) {
+                        if let Some(g) = self.aria2.find_gid_by_infohash(&hash).await? {
+                            task.backend_gid = Some(g.clone());
+                            self.save_and_emit(&task)?;
+                            g
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+                None => continue,
             };
             let prev_status = task.status;
             let st = self.aria2.tell_status(&gid).await?;
+            let is_metadata = aria2::is_metadata_status(&st);
+
+            // Magnet phase 1: metadata download → hand off to the real torrent gid.
+            if let Some(next) = self.resolve_magnet_content_gid(&gid, &st, &task.url).await? {
+                if next != gid {
+                    task.backend_gid = Some(next);
+                    task.status = TaskStatus::Downloading;
+                    task.progress = 0.0;
+                    task.done_bytes = 0;
+                    task.total_bytes = 0;
+                    task.speed = 0;
+                    task.upload_speed = 0;
+                    task.connections = 0;
+                    task.num_seeders = 0;
+                    task.uploaded_bytes = 0;
+                    task.error = None;
+                    task.completed_at = None;
+                    task.filename = None;
+                    task.updated_at = Utc::now();
+                    self.save_and_emit(&task)?;
+                    continue;
+                }
+            }
+
             let total = aria2::parse_i64(&st.total_length);
             let done = aria2::parse_i64(&st.completed_length);
             let speed = aria2::parse_i64(&st.download_speed);
             task.total_bytes = total;
             task.done_bytes = done;
             task.speed = speed;
+            if is_torrent_url(&task.url.trim().to_ascii_lowercase()) {
+                task.upload_speed = aria2::parse_i64(&st.upload_speed);
+                task.connections = aria2::parse_i64(&st.connections) as i32;
+                task.num_seeders = aria2::parse_i64(&st.num_seeders) as i32;
+                task.uploaded_bytes = aria2::parse_i64(&st.upload_length);
+            } else {
+                task.upload_speed = 0;
+                task.connections = 0;
+                task.num_seeders = 0;
+                task.uploaded_bytes = 0;
+            }
             task.progress = if total > 0 {
                 (done as f64 / total as f64) * 100.0
             } else {
@@ -366,10 +474,14 @@ impl Manager {
                 task.save_path = path.parent().map(|p| p.to_string_lossy().into_owned());
             }
             task.status = aria2::map_status(&st.status);
+            if is_metadata {
+                task.status = TaskStatus::Downloading;
+                task.completed_at = None;
+            }
             if task.status == TaskStatus::Failed && !st.error_message.is_empty() {
                 task.error = Some(st.error_message);
             }
-            if task.status == TaskStatus::Completed {
+            if task.status == TaskStatus::Completed && !is_metadata {
                 task.completed_at = Some(Utc::now());
                 task.progress = 100.0;
             }
@@ -377,11 +489,18 @@ impl Manager {
             self.save_and_emit(&task)?;
 
             if task.status == TaskStatus::Completed && prev_status != TaskStatus::Completed {
+                if is_metadata {
+                    continue;
+                }
                 let cfg = self.cfg.read().await;
                 hooks::on_task_completed(&cfg, &task).await;
             }
 
             if task.status == TaskStatus::Failed && prev_status != TaskStatus::Failed {
+                let lower = task.url.trim().to_ascii_lowercase();
+                if lower.starts_with("magnet:") || is_torrent_url(&lower) {
+                    continue;
+                }
                 let runner = self.ytdlp_runner().await;
                 if runner.simulate(&task.url).await.unwrap_or(false) {
                     task.task_type = TaskType::Ytdlp;
@@ -415,10 +534,18 @@ impl Manager {
     pub async fn resume_task(self: &Arc<Self>, id: &str) -> Result<Task> {
         let mut task = self.store.lock().unwrap().get_task(id)?;
         if task.task_type == TaskType::Aria2 {
+            if task.url.starts_with("magnet:") {
+                if let Some(hash) = magnet_infohash(&task.url) {
+                    if let Some(gid) = self.aria2.find_best_gid_for_magnet(&hash).await? {
+                        task.backend_gid = Some(gid);
+                    }
+                }
+            }
             if let Some(gid) = &task.backend_gid {
                 self.aria2.unpause(gid).await?;
             }
             task.status = TaskStatus::Downloading;
+            task.completed_at = None;
             task.updated_at = Utc::now();
             self.save_and_emit(&task)?;
             Ok(task)
@@ -472,6 +599,17 @@ fn infer_referer(url: &str, referer: Option<String>) -> Option<String> {
     url::Url::parse(url.trim())
         .ok()
         .map(|u| format!("{}/", u.origin().ascii_serialization()))
+}
+
+fn magnet_infohash(url: &str) -> Option<String> {
+    let lower = url.trim().to_ascii_lowercase();
+    let pos = lower.find("xt=urn:btih:")?;
+    let hash = lower[pos + 12..].split('&').next()?.trim();
+    if hash.len() >= 32 {
+        Some(hash.to_string())
+    } else {
+        None
+    }
 }
 
 fn is_torrent_url(lower: &str) -> bool {
