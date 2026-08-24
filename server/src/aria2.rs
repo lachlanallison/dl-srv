@@ -46,6 +46,7 @@ pub struct Aria2Status {
     #[serde(rename = "connections", default)]
     pub connections: String,
     #[serde(rename = "numSeeders", default)]
+    /// Seeders aria2 is connected to while **downloading** (not swarm size). Usually 0 while seeding.
     pub num_seeders: String,
     #[serde(rename = "uploadLength", default)]
     pub upload_length: String,
@@ -133,10 +134,14 @@ fn download_options(opts: AddOptions) -> Value {
 
 impl Aria2Client {
     pub fn new(url: String, secret: String) -> Self {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
             url,
             secret,
-            client: Client::new(),
+            client,
             id: Arc::new(AtomicU64::new(0)),
         }
     }

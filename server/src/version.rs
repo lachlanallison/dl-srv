@@ -87,7 +87,10 @@ impl VersionChecker {
 
 async fn fetch_github_latest(owner: &str, repo: &str) -> Result<String, reqwest::Error> {
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
-    let resp = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()?;
+    let resp = client
         .get(url)
         .header("User-Agent", "dl-srv")
         .header("Accept", "application/vnd.github+json")

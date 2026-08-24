@@ -40,7 +40,16 @@ impl RssPoller {
     }
 
     async fn poll_feed(&self, feed: &crate::store::RssFeed) -> Result<()> {
-        let body = reqwest::get(&feed.url).await?.error_for_status()?.bytes().await?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        let body = client
+            .get(&feed.url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
         let channel = rss::Channel::read_from(&body[..])?;
         let filter = feed
             .filter_regex

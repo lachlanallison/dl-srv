@@ -6,6 +6,8 @@ Sends browser downloads (and the current tab URL) to your [dl-srv](../README.md)
 
 ## Firefox (development)
 
+**Primary target browser** — develop and test here first. WebExtension APIs differ from Chromium (e.g. `downloads.download` referer is `headers: [{ name: 'Referer', … }]`, not `referrer`).
+
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click **Load Temporary Add-on…**
 3. Choose `extension/manifest.json`

@@ -370,11 +370,10 @@ impl Manager {
                         if let Some(name) = p.filename {
                             task.filename = Some(name);
                         }
-                        task.updated_at = Utc::now();
-                        let _ = this.store.lock().unwrap().update_task(&task);
-                        this.emit(&task);
-                    }
-                },
+        task.updated_at = Utc::now();
+        let _ = this.save_and_emit(&task);
+    }
+},
             )
             .await?;
 
@@ -473,6 +472,7 @@ impl Manager {
                     task.connections = 0;
                     task.num_seeders = 0;
                     task.uploaded_bytes = 0;
+                    task.seeding = false;
                     task.error = None;
                     task.completed_at = None;
                     task.filename = None;
@@ -525,6 +525,11 @@ impl Manager {
                 task.progress = 100.0;
                 task.speed = 0;
             }
+            task.seeding =
+                is_bt_task(&task.url) && download_done && !is_metadata && is_seeding;
+            if !is_bt_task(&task.url) {
+                task.seeding = false;
+            }
             if task.status == TaskStatus::Failed && !st.error_message.is_empty() {
                 task.error = Some(st.error_message);
             }
@@ -576,7 +581,7 @@ impl Manager {
             }
         }
 
-        // Keep upload stats fresh for completed torrents still seeding in aria2.
+        // Keep seeding stats fresh for completed torrents still in aria2.
         let completed = self.store.lock().unwrap().list_tasks(50, Some("completed"))?;
         for mut task in completed {
             if task.task_type != TaskType::Aria2 || !is_bt_task(&task.url) {
@@ -585,16 +590,31 @@ impl Manager {
             let Some(gid) = task.backend_gid.clone() else {
                 continue;
             };
-            let Ok(st) = self.aria2.tell_status(&gid).await else {
-                continue;
+            let st = match self.aria2.tell_status(&gid).await {
+                Ok(st) => st,
+                Err(_) => {
+                    if task.seeding || task.upload_speed > 0 {
+                        task.seeding = false;
+                        task.upload_speed = 0;
+                        task.updated_at = Utc::now();
+                        self.save_and_emit(&task)?;
+                    }
+                    continue;
+                }
             };
-            if !aria2::is_seeder(&st) {
-                continue;
-            }
+            let total = aria2::parse_i64(&st.total_length);
+            let done = aria2::parse_i64(&st.completed_length);
+            let download_done = total > 0 && done >= total;
+            let is_metadata = aria2::is_metadata_status(&st);
+            let is_seeding = aria2::is_seeder(&st);
+            task.seeding = download_done && !is_metadata && is_seeding;
             task.upload_speed = aria2::parse_i64(&st.upload_speed);
             task.connections = aria2::parse_i64(&st.connections) as i32;
             task.num_seeders = aria2::parse_i64(&st.num_seeders) as i32;
             task.uploaded_bytes = aria2::parse_i64(&st.upload_length);
+            if !task.seeding {
+                task.upload_speed = 0;
+            }
             task.updated_at = Utc::now();
             self.save_and_emit(&task)?;
         }

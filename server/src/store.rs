@@ -91,6 +91,9 @@ pub struct Task {
     pub num_seeders: i32,
     #[serde(default)]
     pub uploaded_bytes: i64,
+    /// True while aria2 still has the torrent active in seeding mode (after download finished).
+    #[serde(default)]
+    pub seeding: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -220,6 +223,7 @@ impl Store {
             connections: 0,
             num_seeders: 0,
             uploaded_bytes: 0,
+            seeding: false,
             error: None,
             referer: input.referer.clone(),
             quality: input.quality.clone(),
@@ -252,7 +256,7 @@ impl Store {
     pub fn list_tasks(&self, limit: i64, status: Option<&str>) -> Result<Vec<Task>> {
         const COLS: &str = "id, url, type, status, backend_gid, category, filename, save_path,
                     progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
-                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at";
+                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at, seeding";
         let mut stmt = match status {
             Some("active") => self.conn.prepare(&format!(
                 "SELECT {COLS} FROM tasks WHERE status IN ('pending', 'downloading', 'paused')
@@ -278,7 +282,7 @@ impl Store {
             .query_row(
                 "SELECT id, url, type, status, backend_gid, category, filename, save_path,
                         progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
-                        uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at
+                        uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at, seeding
                  FROM tasks WHERE id = ?1",
                 [id],
                 row_to_task,
@@ -290,7 +294,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, type, status, backend_gid, category, filename, save_path,
                     progress, done_bytes, total_bytes, speed, upload_speed, connections, num_seeders,
-                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at
+                    uploaded_bytes, error, referer, quality, source, created_at, updated_at, completed_at, seeding
              FROM tasks WHERE status IN ('pending', 'downloading', 'paused')",
         )?;
         let rows = stmt.query_map([], row_to_task)?;
@@ -302,8 +306,8 @@ impl Store {
             "UPDATE tasks SET status=?1, backend_gid=?2, filename=?3, save_path=?4, progress=?5,
              done_bytes=?6, total_bytes=?7, speed=?8, upload_speed=?9, connections=?10,
              num_seeders=?11, uploaded_bytes=?12, error=?13, quality=?14, source=?15, updated_at=?16,
-             completed_at=?17
-             WHERE id=?18",
+             completed_at=?17, seeding=?18
+             WHERE id=?19",
             params![
                 task.status.as_str(),
                 task.backend_gid,
@@ -322,6 +326,7 @@ impl Store {
                 task.source,
                 task.updated_at.to_rfc3339(),
                 task.completed_at.map(|t| t.to_rfc3339()),
+                task.seeding as i32,
                 task.id,
             ],
         )?;
@@ -528,6 +533,12 @@ fn migrate_tasks(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    if !cols.iter().any(|c| c == "seeding") {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN seeding INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -562,5 +573,6 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         completed_at: row
             .get::<_, Option<String>>(22)?
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
+        seeding: row.get::<_, i64>(23).unwrap_or(0) != 0,
     })
 }

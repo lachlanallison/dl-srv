@@ -114,7 +114,21 @@ async fn auth_middleware(
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthReport> {
-    Json(state.manager.version_checker().health().await)
+    match tokio::time::timeout(
+        Duration::from_secs(25),
+        state.manager.version_checker().health(),
+    )
+    .await
+    {
+        Ok(report) => Json(report),
+        Err(_) => Json(HealthReport {
+            dlsrv_version: env!("CARGO_PKG_VERSION").to_string(),
+            aria2_ok: false,
+            aria2_version: None,
+            binaries: vec![],
+            checked_at: chrono::Utc::now(),
+        }),
+    }
 }
 
 async fn events_sse(

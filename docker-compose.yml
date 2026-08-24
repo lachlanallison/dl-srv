@@ -24,7 +24,7 @@ services:
       - CONFIG_DIR=${CONFIG_DIR:-/config}
       - RUST_LOG=${RUST_LOG:-dlsrv=info}
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:35778/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:35778/api/v1/setup"]
       interval: 30s
       timeout: 10s
       retries: 5

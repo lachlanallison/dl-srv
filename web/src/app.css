@@ -302,6 +302,8 @@ h3 {
 
 .badge.completed { background: #1e3d2f; color: var(--ok); }
 
+.badge.seeding { background: #1e3d28; color: #7dcea0; }
+
 .badge.failed { background: #3d1e1e; color: var(--err); }
 
 .badge.paused { background: #3d351e; color: var(--warn); }

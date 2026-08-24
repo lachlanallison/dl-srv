@@ -112,7 +112,7 @@
 
     if (filter === 'all') return true
 
-    if (filter === 'active') return ['pending', 'downloading', 'paused'].includes(task.status)
+    if (filter === 'active') return ['pending', 'downloading', 'paused'].includes(task.status) || task.seeding
 
     return task.status === filter
 
@@ -894,7 +894,7 @@
 
                   </div>
 
-                  <span class="badge {task.status}">{task.status}</span>
+                  <span class="badge {task.seeding ? 'seeding' : task.status}">{task.seeding ? 'seeding' : task.status}</span>
 
                 </div>
 
@@ -908,7 +908,13 @@
 
                     · ↓ {formatSpeed(task.speed)} · ↑ {formatSpeed(task.upload_speed)}
 
-                    · {task.connections ?? 0} peers · {task.num_seeders ?? 0} seeders
+                    · {task.connections ?? 0} {task.seeding ? 'peer(s)' : 'peers'}
+
+                    {#if !task.seeding && !isMetadataPhase(task)}
+
+                      · {task.num_seeders ?? 0} seeders
+
+                    {/if}
 
                     · ratio {formatShareRatio(task.uploaded_bytes ?? 0, task.done_bytes)}
 
@@ -920,13 +926,13 @@
 
                 </div>
 
-                {#if task.status === 'completed' && isTorrentUrl(task.url) && task.upload_speed > 0}
+                {#if task.seeding}
 
-                  <div class="muted">Seeding in aria2 · ↑ {formatSpeed(task.upload_speed)}</div>
+                  <div class="muted">Uploading to leechers in aria2 · seeders shows 0 while you are seeding (aria2 only counts seeders when downloading)</div>
 
                 {:else if task.status === 'completed' && isTorrentUrl(task.url)}
 
-                  <div class="muted">Download complete · seeding depends on peers/NAT (see Settings → BitTorrent ratio/time)</div>
+                  <div class="muted">Download complete · not seeding (ratio/time met or torrent removed from aria2)</div>
 
                 {/if}
 

@@ -8,7 +8,23 @@ ARIA2_RPC_PORT="${ARIA2_RPC_PORT:-6800}"
 
 mkdir -p "$DOWNLOAD_DIR" "$CONFIG_DIR"
 
+# Keep aria2 cache/DHT under /config (not /root/.cache).
+export HOME="$CONFIG_DIR"
+mkdir -p "$HOME/.cache/aria2"
+
 ARIA2_LOG="${CONFIG_DIR}/aria2.log"
+SESSION_FILE="${CONFIG_DIR}/aria2.session"
+
+# --input-file must be a regular file; a missing path or directory prevents aria2 from starting.
+if [ -d "$SESSION_FILE" ]; then
+  echo "aria2.session is a directory — removing so aria2 can start" >&2
+  rm -rf "$SESSION_FILE"
+fi
+
+ARIA2_ARGS=""
+if [ -f "$SESSION_FILE" ]; then
+  ARIA2_ARGS="$ARIA2_ARGS --input-file=$SESSION_FILE"
+fi
 
 # Log aria2 to a file — --log=- spams blank lines into `docker compose logs`.
 aria2c --enable-rpc \
@@ -24,8 +40,8 @@ aria2c --enable-rpc \
   --listen-port=6881 \
   --dht-listen-port=6882 \
   --dht-file-path="$CONFIG_DIR/dht.dat" \
-  --save-session="$CONFIG_DIR/aria2.session" \
-  --input-file="$CONFIG_DIR/aria2.session" \
+  --save-session="$SESSION_FILE" \
+  $ARIA2_ARGS \
   --bt-tracker="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce" \
   --seed-ratio=0 \
   --bt-save-metadata=true \
