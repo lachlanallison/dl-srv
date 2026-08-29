@@ -206,11 +206,11 @@
 
       await refreshTasks()
 
-      health = await api.health()
-
       settings = await api.settings()
 
       syncSettingsForm()
+
+      if (tab === 'health') health = await api.health()
 
       if (tab === 'rss') feeds = await api.listRssFeeds()
 
@@ -681,6 +681,20 @@
       try {
 
         feeds = await api.listRssFeeds()
+
+      } catch (e) {
+
+        setError(e)
+
+      }
+
+    }
+
+    if (t === 'health') {
+
+      try {
+
+        health = await api.health()
 
       } catch (e) {
 

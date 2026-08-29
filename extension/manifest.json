@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "dl-srv",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Send browser downloads to your self-hosted dl-srv NAS (HTTP, torrents, and video sites).",
   "homepage_url": "https://github.com/lachlanallison/dl-srv",
   "content_scripts": [

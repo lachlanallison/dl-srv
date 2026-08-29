@@ -196,19 +196,22 @@ async fn create_task(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<CreateTaskBody>,
-) -> Result<(StatusCode, Json<Task>), StatusCode> {
+) -> Result<(StatusCode, Json<Task>), (StatusCode, Json<serde_json::Value>)> {
     {
         let limit = state.cfg.read().await.rate_limit_per_minute;
         let key = addr.ip().to_string();
         let mut rl = state.rate_limiter.lock().await;
         rl.limit = limit;
         if !rl.check(&key) {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({"error": "rate limit exceeded"})),
+            ));
         }
     }
 
-    if body.url.trim().is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+    if let Err(msg) = crate::router::validate_task_url(&body.url) {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": msg}))));
     }
     let input = AddTaskInput {
         url: body.url.trim().to_string(),
@@ -225,7 +228,12 @@ async fn create_task(
         .add_task(input)
         .await
         .map(|t| (StatusCode::CREATED, Json(t)))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        })
 }
 
 async fn pause_task(

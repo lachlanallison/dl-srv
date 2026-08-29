@@ -5,7 +5,16 @@ use crate::config::Config;
 use crate::store::Task;
 
 pub async fn on_task_completed(config: &Config, task: &Task) {
-    let client = Client::new();
+    let client = match Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!(err = %e, "webhook client build failed");
+            return;
+        }
+    };
 
     if config.webhook_enabled {
         if let Some(url) = &config.webhook_url {

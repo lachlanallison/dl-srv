@@ -139,6 +139,8 @@ impl Manager {
             task_id = %task.id,
             category = %task.category,
             backend = %task.task_type.as_str(),
+            force_ytdlp = input.force_ytdlp,
+            source = ?input.source,
             url = %log_url(&input.url),
             "download queued"
         );
@@ -171,7 +173,11 @@ impl Manager {
         let lower = input.url.trim().to_ascii_lowercase();
         let mut task_type = router::classify_sync(&input.url, input.force_ytdlp);
         let is_bt = lower.starts_with("magnet:") || is_torrent_url(&lower);
-        if task_type == TaskType::Aria2 && !router::is_direct_file_url(&lower) && !is_bt {
+        if task_type == TaskType::Aria2
+            && !router::skip_ytdlp_simulate(&lower)
+            && !router::is_direct_file_url(&lower)
+            && !is_bt
+        {
             task_type = match tokio::time::timeout(
                 std::time::Duration::from_secs(20),
                 router::classify(&input.url, input.force_ytdlp, Some(&runner)),
@@ -202,7 +208,8 @@ impl Manager {
         match task_type {
             TaskType::Aria2 => {
                 if let Err(e) = self.start_aria2_task(&mut task, cookies.clone()).await {
-                    if !router::is_direct_file_url(&lower)
+                    if !router::skip_ytdlp_simulate(&lower)
+                        && !router::is_direct_file_url(&lower)
                         && runner.simulate(&input.url).await.unwrap_or(false)
                     {
                         if let Some(c) = cookies {
@@ -446,6 +453,19 @@ impl Manager {
             let st = match self.aria2.tell_status(&gid).await {
                 Ok(st) => st,
                 Err(e) => {
+                    if aria2_gid_not_found(&e) {
+                        task.backend_gid = None;
+                        if task.status != TaskStatus::Completed {
+                            task.status = TaskStatus::Failed;
+                            task.error = Some(
+                                "aria2 lost track of this download (often after a container restart)"
+                                    .into(),
+                            );
+                            task.updated_at = Utc::now();
+                        }
+                        self.save_and_emit(&task)?;
+                        continue;
+                    }
                     warn!(task_id = %task.id, gid = %gid, err = %e, "aria2 tell_status failed");
                     continue;
                 }
@@ -568,6 +588,9 @@ impl Manager {
                 if lower.starts_with("magnet:") || is_torrent_url(&lower) {
                     continue;
                 }
+                if router::skip_ytdlp_simulate(&lower) {
+                    continue;
+                }
                 let runner = self.ytdlp_runner().await;
                 if runner.simulate(&task.url).await.unwrap_or(false) {
                     task.task_type = TaskType::Ytdlp;
@@ -592,8 +615,14 @@ impl Manager {
             };
             let st = match self.aria2.tell_status(&gid).await {
                 Ok(st) => st,
-                Err(_) => {
-                    if task.seeding || task.upload_speed > 0 {
+                Err(e) => {
+                    if aria2_gid_not_found(&e) {
+                        task.backend_gid = None;
+                        task.seeding = false;
+                        task.upload_speed = 0;
+                        task.updated_at = Utc::now();
+                        self.save_and_emit(&task)?;
+                    } else if task.seeding || task.upload_speed > 0 {
                         task.seeding = false;
                         task.upload_speed = 0;
                         task.updated_at = Utc::now();
@@ -738,8 +767,18 @@ fn is_bt_task(url: &str) -> bool {
     lower.starts_with("magnet:") || is_torrent_url(&lower)
 }
 
+fn aria2_gid_not_found(err: &impl std::fmt::Display) -> bool {
+    err.to_string().to_ascii_lowercase().contains("not found")
+}
+
 async fn fetch_torrent_b64(url: &str) -> Result<String> {
-    let bytes = reqwest::get(url)
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("build torrent client")?;
+    let bytes = client
+        .get(url)
+        .send()
         .await
         .context("fetch torrent")?
         .error_for_status()

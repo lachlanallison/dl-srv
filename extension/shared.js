@@ -279,19 +279,23 @@ async function pingServer() {
       await debugLog('warn', 'No API token configured')
       return { ok: false, error: 'No API token — paste the token from dl-srv setup and click Save' }
     }
-    const { res, url, text } = await apiFetch(settings, '/health', {
+    const { res, url, text } = await apiFetch(settings, '/setup', {
       headers: { Authorization: `Bearer ${settings.token}` },
     })
     if (res.ok) {
       setBadge('')
-      return { ok: true, url, data: JSON.parse(text) }
+      try {
+        return { ok: true, url, data: JSON.parse(text) }
+      } catch {
+        return { ok: true, url }
+      }
     }
     const err = formatHttpError(res.status, url, text)
     setBadge('!', '#ef4444')
     return { ok: false, error: err }
   } catch (e) {
     const err = String(e.message || e)
-    await debugLog('error', 'Health check failed', err)
+    await debugLog('error', 'Server ping failed', err)
     setBadge('!', '#ef4444')
     return { ok: false, error: err }
   }
