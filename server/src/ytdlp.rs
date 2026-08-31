@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
 const SIMULATE_TIMEOUT: Duration = Duration::from_secs(60);
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
 const YTDLP_NETWORK_ARGS: &[&str] = &[
     "--socket-timeout",
     "30",
@@ -107,12 +108,47 @@ impl YtdlpRunner {
     }
 
     pub async fn update(&self) -> Result<String> {
-        let out = Command::new(&self.binary)
-            .arg("-U")
-            .output()
+        let out = tokio::time::timeout(UPDATE_TIMEOUT, Command::new(&self.binary).arg("-U").output())
             .await
+            .context("yt-dlp update timed out after 120s")?
             .context("run yt-dlp -U")?;
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+
+        let msg = command_output(&out);
+        if out.status.success() && !msg.is_empty() {
+            return Ok(msg);
+        }
+
+        if needs_pip_update(&msg) || !out.status.success() {
+            return self.update_via_pip().await;
+        }
+
+        Ok(msg)
+    }
+
+    async fn update_via_pip(&self) -> Result<String> {
+        let out = tokio::time::timeout(
+            UPDATE_TIMEOUT,
+            Command::new("pip3")
+                .args(["install", "--break-system-packages", "-U", "yt-dlp"])
+                .output(),
+        )
+        .await
+        .context("pip yt-dlp update timed out after 120s")?
+        .context("run pip3 install -U yt-dlp")?;
+
+        let msg = command_output(&out);
+        if !out.status.success() {
+            anyhow::bail!(if msg.is_empty() {
+                "pip yt-dlp update failed".into()
+            } else {
+                msg
+            });
+        }
+        Ok(if msg.is_empty() {
+            "yt-dlp updated via pip".into()
+        } else {
+            msg
+        })
     }
 
     pub async fn simulate(&self, url: &str) -> Result<bool> {
@@ -299,6 +335,22 @@ fn size_to_bytes(value: &str, unit: &str) -> i64 {
         _ => 1.0,
     };
     (v * mult) as i64
+}
+
+fn command_output(out: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    match (stdout.trim().is_empty(), stderr.trim().is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => stdout.trim().to_string(),
+        (true, false) => stderr.trim().to_string(),
+        (false, false) => format!("{}\n{}", stdout.trim(), stderr.trim()),
+    }
+}
+
+fn needs_pip_update(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("pip") || lower.contains("pypi")
 }
 
 pub async fn ffmpeg_version(path: &str) -> Result<String> {

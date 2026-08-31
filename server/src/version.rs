@@ -24,6 +24,9 @@ pub struct HealthReport {
     pub aria2_ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aria2_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aria2_latest: Option<String>,
+    pub aria2_update_available: bool,
     pub binaries: Vec<BinaryInfo>,
     pub checked_at: chrono::DateTime<Utc>,
 }
@@ -60,14 +63,25 @@ impl VersionChecker {
             dlsrv_version: env!("CARGO_PKG_VERSION").to_string(),
             aria2_ok: false,
             aria2_version: None,
+            aria2_latest: None,
+            aria2_update_available: false,
             binaries: vec![],
             checked_at: Utc::now(),
         };
+
+        let aria2_latest = fetch_github_latest("aria2", "aria2").await.ok();
 
         match self.aria2.ping().await {
             Ok(()) => {
                 report.aria2_ok = true;
                 report.aria2_version = self.aria2.version().await.ok();
+                if let Some(ref installed) = report.aria2_version {
+                    report.aria2_latest = aria2_latest.clone();
+                    report.aria2_update_available = aria2_latest
+                        .as_ref()
+                        .map(|l| aria2_outdated(installed, l))
+                        .unwrap_or(false);
+                }
             }
             Err(e) => tracing::warn!(err = %e, "aria2 health check failed"),
         }
@@ -181,6 +195,15 @@ fn ffmpeg_outdated(installed: &str, latest: &str) -> bool {
         (Some(a), Some(b)) => ver_key(a) < ver_key(b),
         _ => false,
     }
+}
+
+fn aria2_outdated(installed: &str, latest: &str) -> bool {
+    let latest_ver = latest
+        .strip_prefix("release-")
+        .unwrap_or(latest)
+        .trim_start_matches('n');
+    let installed_ver = installed.split_whitespace().next().unwrap_or(installed);
+    ver_key(installed_ver) < ver_key(latest_ver)
 }
 
 fn ver_key(v: &str) -> String {

@@ -719,6 +719,7 @@ impl Manager {
         drop(cfg);
         let msg = runner.update().await?;
         self.version_checker.invalidate().await;
+        info!(message = %msg, "yt-dlp updated");
         Ok(msg)
     }
 }

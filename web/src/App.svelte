@@ -99,12 +99,14 @@
 
 
   let updatingYtdlp = false
+  let ytdlpUpdateMsg = ''
 
   let unsubscribe = null
 
   let queuePoll = null
 
-  const QUEUE_POLL_MS = 4000
+  const CONTAINER_UPDATE_HINT =
+    'Rebuild and restart the dl-srv container to update (Alpine packages in the Docker image). On TrueNAS: docker compose build dl-srv && docker compose up -d dl-srv'
 
 
 
@@ -652,11 +654,15 @@
 
     setError('')
 
+    ytdlpUpdateMsg = ''
+
     try {
 
-      await api.updateYtdlp()
+      const res = await api.updateYtdlp()
 
-      health = await api.health()
+      ytdlpUpdateMsg = res?.message || 'yt-dlp updated'
+
+      if (tab === 'health') health = await api.health()
 
     } catch (e) {
 
@@ -1332,6 +1338,14 @@
 
             {/if}
 
+            {#if health.aria2_update_available}
+
+              <div class="alert warn inline" style="margin-top: 0.35rem">Update available — latest {health.aria2_latest}</div>
+
+              <div class="muted" style="margin-top: 0.35rem">{CONTAINER_UPDATE_HINT}</div>
+
+            {/if}
+
           </div>
 
           {#each health.binaries as bin}
@@ -1343,6 +1357,12 @@
               {#if bin.update_available}
 
                 <div class="alert warn inline">Update available — latest {bin.latest}</div>
+
+                {#if bin.name === 'ffmpeg'}
+
+                  <div class="muted" style="margin-top: 0.35rem">{CONTAINER_UPDATE_HINT}</div>
+
+                {/if}
 
               {/if}
 
@@ -1369,6 +1389,12 @@
                   {updatingYtdlp ? 'Updating…' : 'Update yt-dlp now'}
 
                 </button>
+
+                {#if ytdlpUpdateMsg}
+
+                  <div class="muted" style="margin-top: 0.35rem; white-space: pre-wrap">{ytdlpUpdateMsg}</div>
+
+                {/if}
 
               {/if}
 

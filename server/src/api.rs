@@ -125,6 +125,8 @@ async fn health(State(state): State<AppState>) -> Json<HealthReport> {
             dlsrv_version: env!("CARGO_PKG_VERSION").to_string(),
             aria2_ok: false,
             aria2_version: None,
+            aria2_latest: None,
+            aria2_update_available: false,
             binaries: vec![],
             checked_at: chrono::Utc::now(),
         }),
