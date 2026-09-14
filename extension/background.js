@@ -6,6 +6,7 @@
     console.error('[dl-srv] shared.js did not load')
     return
   }
+  globalThis.dlsrvInBackground = true
 
   const {
     ext,
@@ -22,6 +23,8 @@
     getPendingDownload,
     enqueuePendingDownload,
     setBadge,
+    shouldInterceptExt,
+    debugLog,
   } = globalThis.dlsrv
 
   const bypassUrls = new Set()
@@ -36,6 +39,30 @@
   let promptPendingId = null
   let finishingPendingId = null
 
+  function log(level, message, detail) {
+    console[level === 'error' ? 'error' : 'log']('[dl-srv]', message, detail ?? '')
+    return debugLog(level, message, detail).catch(() => {})
+  }
+
+  function snapshotDownload(item) {
+    if (!item) return null
+    return {
+      id: item.id,
+      state: item.state,
+      paused: item.paused,
+      url: item.url,
+      finalUrl: item.finalUrl,
+      filename: item.filename,
+      bytesReceived: item.bytesReceived,
+      totalBytes: item.totalBytes,
+      fileSize: item.fileSize,
+      exists: item.exists,
+      error: item.error,
+      mime: item.mime,
+      canResume: item.canResume,
+    }
+  }
+
   function claimBrowserRelease(pendingId) {
     if (browserReleaseIds.has(pendingId)) return false
     browserReleaseIds.add(pendingId)
@@ -43,52 +70,36 @@
     return true
   }
 
-  function isNotResumableError(err) {
-    const s = String(err?.message || err)
-    return /NOT_RESUMABLE|not resumable/i.test(s)
+  function downloadHasBytes(item) {
+    if (!item) return false
+    const received = Number(item.bytesReceived)
+    if (Number.isFinite(received) && received > 0) return true
+    const size = Number(item.fileSize)
+    if (Number.isFinite(size) && size > 0) return true
+    const total = Number(item.totalBytes)
+    if (Number.isFinite(total) && total > 0) return true
+    return false
   }
 
-  /** Chrome: `referrer`. Firefox: Referer via `headers` (referrer key is rejected). */
-  function browserDownloadOptions(pending, conflictAction) {
-    const opts = { url: pending.url, conflictAction }
-    if (pending.filename) opts.filename = pending.filename
-    if (pending.referer) {
-      if (typeof globalThis.browser !== 'undefined') {
-        opts.headers = [{ name: 'Referer', value: pending.referer }]
-      } else {
-        opts.referrer = pending.referer
-      }
-    }
-    return opts
+  function downloadTotalBytes(item) {
+    const total = Number(item?.totalBytes)
+    if (Number.isFinite(total) && total > 0) return total
+    return 0
   }
 
-  async function releaseToBrowser(pending, conflictAction = 'uniquify') {
-    markBypass(pending.url)
-    return ext.downloads.download(browserDownloadOptions(pending, conflictAction))
+  function downloadFullyReceived(item) {
+    const total = downloadTotalBytes(item)
+    const received = Number(item?.bytesReceived) || 0
+    return total > 0 && received >= total
   }
 
-  async function cancelHeldDownload(pending) {
-    if (pending.downloadId == null) return
-    await ext.downloads.cancel(pending.downloadId).catch(() => {})
-    await ext.downloads.erase({ id: pending.downloadId }).catch(() => {})
+  function downloadNearlyDone(item) {
+    const total = downloadTotalBytes(item)
+    if (!total) return false
+    const received = Number(item.bytesReceived) || 0
+    return total - received <= 65536 || received / total >= 0.95
   }
 
-  /** Non-resumable HTTP downloads cannot resume after pause — re-fetch instead. */
-  async function restartBrowserDownload(pending, conflictAction = 'overwrite') {
-    await cancelHeldDownload(pending)
-    if (pending.downloadId != null) heldDownloadIds.delete(pending.downloadId)
-    const next = { ...pending, downloadId: null }
-    const newId = await releaseToBrowser(next, conflictAction)
-    if (newId != null) heldDownloadIds.add(newId)
-    await waitForDownloadState(newId, ['complete', 'interrupted']).catch(() => {})
-    const [done] = await ext.downloads.search({ id: newId }).catch(() => [])
-    if (done?.state === 'complete') {
-      notify('Download complete', pending.filename || pending.url)
-    }
-    return newId
-  }
-
-  /** Let the user finish in Firefox — resume a held download or start a clean one. */
   async function releasePendingToBrowser(pending) {
     if (pending.url.startsWith('magnet:')) {
       markBypass(pending.url)
@@ -97,91 +108,65 @@
       return
     }
 
-    trackBrowserRelease(pending)
-    try {
-      notify('Downloading in browser', pending.filename || pending.url)
-      markBypass(pending.url)
+    await log('info', 'releasing download to browser', {
+      url: pending.url,
+      referer: pending.referer || null,
+      filename: pending.filename || null,
+      heldId: pending.downloadId ?? null,
+    })
 
-      if (pending.downloadId == null) {
-        const newId = await releaseToBrowser(pending)
-        if (newId != null) heldDownloadIds.add(newId)
-        await waitForDownloadState(newId, ['complete', 'interrupted']).catch(() => {})
-        return
+    if (pending.downloadId == null) {
+      await log('warn', 'no original download id — not starting a new GET')
+      notify('Original download was lost — click the link again', pending.filename || pending.url)
+      return
+    }
+
+    heldDownloadIds.add(pending.downloadId)
+    const [item] = await ext.downloads.search({ id: pending.downloadId }).catch(() => [])
+    await log('info', 'original download at browser-release', snapshotDownload(item))
+
+    if (!item) {
+      await log('error', 'original download vanished — not re-fetching (signed URLs return 403)')
+      notify('Original download was lost — click the link again', pending.filename || pending.url)
+      return
+    }
+
+    if (item.state === 'complete') {
+      if (downloadHasBytes(item)) {
+        notify('Download complete', pending.filename || item.filename || pending.url)
+      } else {
+        notify('Download was empty — click the link again', pending.filename || pending.url)
       }
+      return
+    }
 
-      const [item] = await ext.downloads.search({ id: pending.downloadId }).catch(() => [])
-      if (!item) {
-        const newId = await releaseToBrowser(pending)
-        if (newId != null) heldDownloadIds.add(newId)
-        await waitForDownloadState(newId, ['complete', 'interrupted']).catch(() => {})
-        return
-      }
-
-      heldDownloadIds.add(pending.downloadId)
-
-      if (item.state === 'complete') {
-        notify('Download complete', pending.filename || pending.url)
-        return
-      }
-
-      if (item.state === 'in_progress' && !item.paused) {
-        try {
-          await ext.downloads.pause(pending.downloadId)
-        } catch (e) {
-          console.warn('[dl-srv] pause before release failed:', e)
-        }
-      }
-
+    if (item.state === 'interrupted' || item.paused) {
       try {
         await ext.downloads.resume(pending.downloadId)
-      } catch (err) {
-        console.warn('[dl-srv] resume held download failed:', err)
-        const [after] = await ext.downloads.search({ id: pending.downloadId }).catch(() => [])
-        if (after?.state === 'complete') {
-          notify('Download complete', pending.filename || pending.url)
-          return
+        await log('info', 'resumed original download', { id: pending.downloadId })
+      } catch (e) {
+        await log('error', 'resume original failed', {
+          error: String(e.message || e),
+          item: snapshotDownload(item),
+        })
+        if (downloadHasBytes(item)) {
+          notify('Downloading in browser', pending.filename || pending.url)
+        } else {
+          notify('Could not resume download — click the link again', pending.filename || pending.url)
         }
-        if (isNotResumableError(err)) {
-          await restartBrowserDownload(pending, 'overwrite')
-          return
-        }
-        await restartBrowserDownload(pending, 'uniquify')
         return
       }
-
-      const finalState = await waitForDownloadState(pending.downloadId, [
-        'complete',
-        'interrupted',
-      ]).catch((e) => {
-        console.warn('[dl-srv] waiting for held download:', e)
-        return null
-      })
-
-      if (finalState === 'complete') {
-        notify('Download complete', pending.filename || pending.url)
-        return
-      }
-
-      if (finalState === 'interrupted') {
-        try {
-          await ext.downloads.resume(pending.downloadId)
-          await waitForDownloadState(pending.downloadId, ['complete', 'interrupted'])
-          notify('Download complete', pending.filename || pending.url)
-        } catch (e) {
-          console.warn('[dl-srv] interrupted download could not finish:', e)
-          if (isNotResumableError(e)) {
-            await restartBrowserDownload(pending, 'overwrite')
-          } else {
-            notify('Browser download may be incomplete', pending.filename || pending.url)
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[dl-srv] browser download', e)
-      notify('Browser download failed', String(e.message || e))
-    } finally {
-      untrackBrowserRelease(pending)
     }
+
+    notify('Downloading in browser', pending.filename || pending.url)
+  }
+
+  async function cancelHeldDownload(pending) {
+    if (pending.downloadId == null) return
+    const id = pending.downloadId
+    await ext.downloads.cancel(id).catch(() => {})
+    await ext.downloads.removeFile(id).catch(() => {})
+    await ext.downloads.erase({ id }).catch(() => {})
   }
 
   function makePendingId() {
@@ -207,23 +192,139 @@
     setTimeout(() => bypassUrls.delete(url), 60000)
   }
 
-  function trackBrowserRelease(pending) {
-    if (pending.url) browserReleaseUrls.add(pending.url)
-    if (pending.downloadId != null) heldDownloadIds.add(pending.downloadId)
-  }
-
-  function untrackBrowserRelease(pending) {
-    if (pending.url) browserReleaseUrls.delete(pending.url)
-    if (pending.downloadId != null) heldDownloadIds.delete(pending.downloadId)
-  }
-
   function shouldSkipInterceptDownload(item) {
     const url = item.finalUrl || item.url
-    if (heldDownloadIds.has(item.id)) return true
-    if (bypassUrls.has(url) || browserReleaseUrls.has(url)) return true
-    if (item.finalUrl && browserReleaseUrls.has(item.finalUrl)) return true
-    if (item.url && browserReleaseUrls.has(item.url)) return true
-    return false
+    if (heldDownloadIds.has(item.id)) return 'held-id'
+    if (bypassUrls.has(url) || (item.url && bypassUrls.has(item.url)) || (item.finalUrl && bypassUrls.has(item.finalUrl))) {
+      return 'bypass-url'
+    }
+    if (browserReleaseUrls.has(url) || (item.finalUrl && browserReleaseUrls.has(item.finalUrl)) || (item.url && browserReleaseUrls.has(item.url))) {
+      return 'release-url'
+    }
+    return null
+  }
+
+  const watchingIntercepts = new Map()
+  const pausingIds = new Set()
+  const WATCH_MS = 10 * 60 * 1000
+  const POLL_MS = 200
+
+  function stopWatching(downloadId) {
+    const meta = watchingIntercepts.get(downloadId)
+    if (meta?.timer) clearTimeout(meta.timer)
+    if (meta?.poll) clearInterval(meta.poll)
+    watchingIntercepts.delete(downloadId)
+    pausingIds.delete(downloadId)
+  }
+
+  async function promptPausedDownload(item, meta) {
+    if (meta.prompted) return
+    meta.prompted = true
+    const pending = {
+      id: makePendingId(),
+      downloadId: item.id,
+      url: meta.url,
+      referer: meta.referer,
+      filename: meta.filename,
+      createdAt: Date.now(),
+    }
+    stopWatching(item.id)
+    heldDownloadIds.add(item.id)
+    await log('info', 'paused resumable download for intercept prompt', snapshotDownload(item))
+    const settings = await getSettings()
+    await queueIntercept(pending, settings)
+  }
+
+  async function decideWatchedDownload(item) {
+    const meta = watchingIntercepts.get(item.id)
+    if (!meta) return
+
+    const received = Number(item.bytesReceived) || 0
+    const pausing = pausingIds.has(item.id) || meta.wePaused
+
+    if (item.state === 'complete') {
+      await log('info', 'skip intercept: completed before a safe pause', snapshotDownload(item))
+      stopWatching(item.id)
+      return
+    }
+
+    if (item.state === 'interrupted') {
+      const looksPaused = received > 0 && (pausing || item.paused || item.canResume)
+      if (looksPaused) {
+        if (downloadFullyReceived(item) || downloadNearlyDone(item)) {
+          await log('info', 'skip intercept: pause hit an already-finished download — resuming', snapshotDownload(item))
+          stopWatching(item.id)
+          await ext.downloads.resume(item.id).catch(() => {})
+          return
+        }
+        await log('info', 'Firefox reported pause as interrupted — still prompting', snapshotDownload(item))
+        await promptPausedDownload(item, meta)
+        return
+      }
+      await log('info', 'skip intercept: finished before a safe pause', snapshotDownload(item))
+      stopWatching(item.id)
+      return
+    }
+
+    if (received <= 0) return
+    if (pausing) return
+    if (downloadNearlyDone(item)) {
+      await log('info', 'skip intercept: already nearly complete', snapshotDownload(item))
+      stopWatching(item.id)
+      return
+    }
+
+    pausingIds.add(item.id)
+    meta.wePaused = true
+    await log('info', 'first bytes received — trying pause', snapshotDownload(item))
+    try {
+      await ext.downloads.pause(item.id)
+    } catch (e) {
+      await log('info', 'skip intercept: pause failed (not resumable)', {
+        error: String(e.message || e),
+        item: snapshotDownload(item),
+      })
+      stopWatching(item.id)
+      return
+    }
+
+    const [paused] = await ext.downloads.search({ id: item.id }).catch(() => [])
+    const current = paused || item
+    if (downloadFullyReceived(current)) {
+      await log('info', 'skip intercept: pause hit an already-finished download — resuming', snapshotDownload(current))
+      stopWatching(item.id)
+      await ext.downloads.resume(item.id).catch(() => {})
+      return
+    }
+    await promptPausedDownload(current, meta)
+  }
+
+  function watchForResumableIntercept(item, filename) {
+    heldDownloadIds.add(item.id)
+    const meta = {
+      url: item.finalUrl || item.url,
+      referer: item.referrer || undefined,
+      filename,
+      prompted: false,
+      wePaused: false,
+      timer: null,
+      poll: null,
+    }
+    meta.timer = setTimeout(() => {
+      if (!watchingIntercepts.has(item.id)) return
+      log('info', 'skip intercept: timed out waiting for first byte', { id: item.id })
+      stopWatching(item.id)
+    }, WATCH_MS)
+    meta.poll = setInterval(() => {
+      if (!watchingIntercepts.has(item.id)) return
+      ext.downloads
+        .search({ id: item.id })
+        .then(([current]) => current && decideWatchedDownload(current))
+        .catch((e) => log('error', 'watch poll failed', String(e.message || e)))
+    }, POLL_MS)
+    watchingIntercepts.set(item.id, meta)
+    log('info', 'watching download until first byte — will pause only if resumable', snapshotDownload(item))
+    decideWatchedDownload(item).catch((e) => log('error', 'watch intercept failed', String(e.message || e)))
   }
 
   function waitForDownloadState(downloadId, states, timeoutMs = 180000) {
@@ -245,8 +346,16 @@
         reject(err)
       }
       const onChanged = (delta) => {
-        if (delta.id !== downloadId || !delta.state) return
-        if (wanted.has(delta.state.current)) finish(delta.state.current)
+        if (delta.id !== downloadId) return
+        log('info', 'download changed', {
+          id: downloadId,
+          state: delta.state?.current,
+          bytes: delta.bytesReceived?.current,
+          error: delta.error?.current,
+          exists: delta.exists?.current,
+          filename: delta.filename?.current,
+        })
+        if (delta.state && wanted.has(delta.state.current)) finish(delta.state.current)
       }
       const timer = setTimeout(() => fail(new Error('download timed out')), timeoutMs)
       ext.downloads.onChanged.addListener(onChanged)
@@ -267,44 +376,6 @@
       } catch {
         /* already closed */
       }
-    }
-  }
-
-  async function holdDownload(item) {
-    const url = item.finalUrl || item.url
-    const name = item.filename || ''
-    const filename = name ? name.split(/[\\/]/).pop() : undefined
-    const cleaned = cleanFilenameHint(filename || url)
-    const base = {
-      id: makePendingId(),
-      url,
-      referer: item.referrer || undefined,
-      filename: cleaned || filename,
-      createdAt: Date.now(),
-    }
-
-    try {
-      await ext.downloads.pause(item.id)
-      heldDownloadIds.add(item.id)
-      return { ...base, downloadId: item.id }
-    } catch {
-      const [current] = await ext.downloads.search({ id: item.id }).catch(() => [])
-      if (!current) {
-        return { ...base, downloadId: null }
-      }
-      if (current.state === 'complete') {
-        heldDownloadIds.add(item.id)
-        return { ...base, downloadId: item.id }
-      }
-      if (current.state === 'in_progress' && !current.paused) {
-        try {
-          await ext.downloads.pause(item.id)
-        } catch {
-          /* keep downloadId — release path will try again */
-        }
-      }
-      heldDownloadIds.add(item.id)
-      return { ...base, downloadId: item.id }
     }
   }
 
@@ -345,7 +416,7 @@
         pending.url.startsWith('magnet:') ?
           globalThis.dlsrv.magnetLabel(pending.url)
         : pending.filename || pending.url
-      notify('Sent to dl-srv', label)
+      notify('Sent to NAS', label)
       return
     }
     await enqueuePendingDownload(pending)
@@ -426,10 +497,10 @@
   }
 
   async function finishPending(id, handler) {
-    const pending = await getPendingDownload(id)
-    if (!pending) return { error: 'Download no longer pending' }
     finishingPendingId = id
     try {
+      const pending = await getPendingDownload(id)
+      if (!pending) return { error: 'Download no longer pending' }
       await closePromptForPending(id)
       await handler(pending)
       await removePending(id)
@@ -446,8 +517,10 @@
         const url = item.finalUrl || item.url
         if (!url) return
 
-        if (shouldSkipInterceptDownload(item)) {
+        const skipReason = shouldSkipInterceptDownload(item)
+        if (skipReason) {
           heldDownloadIds.add(item.id)
+          await log('info', 'skip intercept', { reason: skipReason, item: snapshotDownload(item) })
           return
         }
 
@@ -474,12 +547,21 @@
         }
 
         const host = hostOf(url)
-        if (settings.ignoreDomains.includes(host)) return
+        if (settings.ignoreDomains.includes(host)) {
+          await log('info', 'skip intercept: ignored domain', { host, url })
+          return
+        }
 
         const name = item.filename || ''
         const fileExt = extOf(name) || extOf(url)
-        if (fileExt && settings.ignoreExt.includes(fileExt)) return
-        if (settings.minSize > 0 && item.fileSize > 0 && item.fileSize < settings.minSize) return
+        if (!shouldInterceptExt(fileExt, settings)) {
+          await log('info', 'skip intercept: file type', { ext: fileExt || null, url })
+          return
+        }
+        if (settings.minSize > 0 && item.fileSize > 0 && item.fileSize < settings.minSize) {
+          await log('info', 'skip intercept: min size', { fileSize: item.fileSize, minSize: settings.minSize })
+          return
+        }
 
         const filename = name ? name.split(/[\\/]/).pop() : undefined
         const cleaned = cleanFilenameHint(filename || url)
@@ -492,12 +574,15 @@
             referer: item.referrer || undefined,
             filename: cleaned,
           })
-          notify('Sent to dl-srv', cleaned || filename || url)
+          notify('Sent to NAS', cleaned || filename || url)
           return
         }
 
-        const pending = await holdDownload(item)
-        await queueIntercept(pending, settings)
+        await log('info', 'intercept candidate', {
+          ext: fileExt || null,
+          item: snapshotDownload(item),
+        })
+        watchForResumableIntercept(item, cleaned || filename)
       } catch (e) {
         console.error('[dl-srv] download intercept', e)
         const { debugLog } = globalThis.dlsrv
@@ -509,6 +594,16 @@
         }
         notify('dl-srv failed', String(e.message || e))
       }
+    })
+  }
+
+  if (ext.downloads?.onChanged) {
+    ext.downloads.onChanged.addListener((delta) => {
+      if (!watchingIntercepts.has(delta.id)) return
+      ext.downloads
+        .search({ id: delta.id })
+        .then(([item]) => item && decideWatchedDownload(item))
+        .catch((e) => log('error', 'watch onChanged failed', String(e.message || e)))
     })
   }
 
@@ -539,7 +634,7 @@
         })
         ext.contextMenus.create({
           id: 'dlsrv-page',
-          title: 'Download page on NAS (video)',
+          title: 'Send this page URL to NAS',
           contexts: ['page'],
         })
       })
@@ -554,7 +649,7 @@
       await postTask({
         url: target,
         referer,
-        force_ytdlp: info.menuItemId === 'dlsrv-page',
+        force_ytdlp: false,
       })
     } catch (e) {
       console.error('[dl-srv] context menu', e)
@@ -569,6 +664,11 @@
     console.warn('[dl-srv] alarm create', e)
   })
   pingServer().catch((e) => console.warn('[dl-srv] initial ping', e))
+  if (ext.action?.setIcon) {
+    ext.action
+      .setIcon({ path: { 16: 'icons/icon16.png', 32: 'icons/icon32.png' } })
+      .catch((e) => console.warn('[dl-srv] setIcon', e))
+  }
 
   ext.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'dlsrv-ping') {
@@ -590,7 +690,7 @@
               filename: pending.filename,
               category: msg.category,
             })
-            notify('Sent to dl-srv', `${msg.category}/ — ${pending.filename || pending.url}`)
+            notify('Sent to NAS', `${msg.category}/ — ${pending.filename || pending.url}`)
           }),
         )
       })()

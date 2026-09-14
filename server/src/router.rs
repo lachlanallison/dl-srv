@@ -1,5 +1,4 @@
 use crate::store::TaskType;
-use crate::ytdlp::YtdlpRunner;
 
 const VIDEO_HOSTS: &[&str] = &[
     "youtube.com",
@@ -22,18 +21,15 @@ const VIDEO_HOSTS: &[&str] = &[
 ];
 
 pub fn classify_sync(url: &str, force_ytdlp: bool) -> TaskType {
-    if force_ytdlp {
-        return TaskType::Ytdlp;
-    }
     let lower = url.trim().to_ascii_lowercase();
     if lower.starts_with("magnet:") || is_torrent_url(&lower) {
         return TaskType::Aria2;
     }
-    if skip_ytdlp_simulate(&lower) {
-        return TaskType::Aria2;
-    }
     if is_direct_file_url(&lower) {
         return TaskType::Aria2;
+    }
+    if force_ytdlp {
+        return TaskType::Ytdlp;
     }
     for host in VIDEO_HOSTS {
         if lower.contains(host) {
@@ -41,34 +37,6 @@ pub fn classify_sync(url: &str, force_ytdlp: bool) -> TaskType {
         }
     }
     TaskType::Aria2
-}
-
-pub async fn classify(url: &str, force_ytdlp: bool, runner: Option<&YtdlpRunner>) -> TaskType {
-    let sync = classify_sync(url, force_ytdlp);
-    if sync != TaskType::Aria2 {
-        return sync;
-    }
-    let lower = url.trim().to_ascii_lowercase();
-    if lower.starts_with("magnet:") || is_torrent_url(&lower) {
-        return TaskType::Aria2;
-    }
-    if skip_ytdlp_simulate(&lower) || is_direct_file_url(&lower) {
-        return TaskType::Aria2;
-    }
-    if let Some(r) = runner {
-        if r.simulate(url).await.unwrap_or(false) {
-            return TaskType::Ytdlp;
-        }
-    }
-    TaskType::Aria2
-}
-
-/// Direct file hosts — always aria2, never yt-dlp simulate probe.
-pub fn skip_ytdlp_simulate(lower: &str) -> bool {
-    if lower.contains("pixeldrain.com") {
-        return lower.contains("/api/file/") || lower.contains("/u/");
-    }
-    false
 }
 
 pub fn is_direct_file_url(lower: &str) -> bool {
@@ -112,7 +80,7 @@ pub fn validate_task_url(url: &str) -> Result<(), String> {
         _ => return Err("URL must be http, https, or magnet".into()),
     }
 
-    if is_direct_file_url(&lower) || is_torrent_url(&lower) || skip_ytdlp_simulate(&lower) {
+    if is_direct_file_url(&lower) || is_torrent_url(&lower) {
         return Ok(());
     }
     for host in VIDEO_HOSTS {
@@ -140,4 +108,41 @@ fn looks_like_search_page(parsed: &url::Url) -> bool {
     };
     let q = q.to_ascii_lowercase();
     q.contains("query=") || q.starts_with("q=")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opaque_file_host_urls_default_to_aria2() {
+        assert_eq!(
+            classify_sync("https://pixeldrain.com/u/tXYpoSJx", false),
+            TaskType::Aria2
+        );
+        assert_eq!(
+            classify_sync("https://pixeldrain.com/api/file/tXYpoSJx?download", false),
+            TaskType::Aria2
+        );
+    }
+
+    #[test]
+    fn file_extension_stays_aria2_even_when_forced() {
+        assert_eq!(
+            classify_sync("https://cdn.example.com/show.mkv", true),
+            TaskType::Aria2
+        );
+    }
+
+    #[test]
+    fn youtube_uses_ytdlp() {
+        assert_eq!(
+            classify_sync("https://www.youtube.com/watch?v=abc", false),
+            TaskType::Ytdlp
+        );
+        assert_eq!(
+            classify_sync("https://www.youtube.com/watch?v=abc", true),
+            TaskType::Ytdlp
+        );
+    }
 }

@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>dl-srv options</title>
+    <link rel="stylesheet" href="shot.css" />
+  </head>
+  <body>
+    <div class="stage">
+      <div class="window">
+        <div class="chrome">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="tabs">
+            <div class="tab">
+              <img src="icon32.png" alt="" />
+              dl-srv options
+            </div>
+          </div>
+          <div class="urlbar">
+            <span>moz-extension://dl-srv/options.html</span>
+          </div>
+        </div>
+        <div class="page" style="overflow: hidden; background: #fff;">
+          <div class="options">
+            <h1>dl-srv</h1>
+            <p class="hint">Extension v1.0.15</p>
+            <label>
+              Server URL
+              <input type="url" value="http://192.168.1.99:35778" readonly />
+              <div class="hint">Base URL only — include http://, IP/hostname, and port :35778.</div>
+            </label>
+            <label>
+              API token
+              <input type="text" value="••••••••••••••••" readonly />
+              <div class="hint">From dl-srv web UI setup wizard or config/config.json on the NAS.</div>
+            </label>
+            <label>
+              Default category
+              <input type="text" value="movies" readonly />
+            </label>
+            <label><input type="checkbox" checked disabled /> Intercept browser downloads</label>
+            <label><input type="checkbox" checked disabled /> Intercept magnet links</label>
+            <label><input type="checkbox" checked disabled /> Ask category when intercepting (or send back to browser)</label>
+            <label>
+              Allow extensions (comma-separated, empty = all types)
+              <input type="text" value="mkv, mp4, pdf, zip" readonly />
+            </label>
+            <label>
+              Block extensions (comma-separated)
+              <input type="text" value="html, htm, txt, css, js, json" readonly />
+            </label>
+            <div class="row" style="align-items: center;">
+              <button>Save</button>
+              <button>Test connection</button>
+              <span class="ok">Connected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

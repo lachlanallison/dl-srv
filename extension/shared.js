@@ -13,6 +13,7 @@ const DEFAULTS = {
   interceptMagnets: true,
   askOnIntercept: true,
   minSize: 0,
+  allowExt: [],
   ignoreExt: ['html', 'htm', 'txt', 'css', 'js', 'json'],
   ignoreDomains: [],
   autoForceYtdlp: false,
@@ -27,7 +28,8 @@ function cleanFilenameHint(raw) {
   if (!name.includes('.')) return undefined
   try {
     const decoded = decodeURIComponent(name.replace(/\+/g, ' '))
-    const m = /^[A-Za-z0-9_-]{8,}-(.+\.[A-Za-z0-9]{2,5})$/.exec(decoded)
+    // Only strip UUID/hex prefixes, not real names like "…Aug_27-2.pdf"
+    const m = /^[0-9a-f]{8,}-(.+\.[A-Za-z0-9]{2,5})$/i.exec(decoded)
     return m ? m[1] : decoded
   } catch {
     return name
@@ -85,7 +87,12 @@ async function getSettings() {
     ...DEFAULTS,
     ...data,
     serverUrl: normalizeServerUrl(data.serverUrl ?? DEFAULTS.serverUrl),
-    ignoreExt: Array.isArray(data.ignoreExt) ? data.ignoreExt : DEFAULTS.ignoreExt,
+    allowExt: Array.isArray(data.allowExt)
+      ? data.allowExt.map((x) => String(x).toLowerCase())
+      : DEFAULTS.allowExt,
+    ignoreExt: Array.isArray(data.ignoreExt)
+      ? data.ignoreExt.map((x) => String(x).toLowerCase())
+      : DEFAULTS.ignoreExt,
     ignoreDomains: Array.isArray(data.ignoreDomains) ? data.ignoreDomains : DEFAULTS.ignoreDomains,
   }
   return merged
@@ -150,6 +157,7 @@ function extensionVersion() {
 }
 
 async function backgroundFetch(settings, path, init = {}) {
+  if (globalThis.dlsrvInBackground) return null
   if (!ext.runtime?.sendMessage) return null
   try {
     const result = await ext.runtime.sendMessage({
@@ -331,8 +339,18 @@ function parseCommaList(s) {
   if (!s || !String(s).trim()) return []
   return String(s)
     .split(',')
-    .map((x) => x.trim())
+    .map((x) => x.trim().toLowerCase())
     .filter(Boolean)
+}
+
+/** Allow list (empty = all types) minus block list. Unknown/empty extension is skipped when allow list is set. */
+function shouldInterceptExt(fileExt, settings) {
+  const ext = (fileExt || '').toLowerCase()
+  const allow = Array.isArray(settings.allowExt) ? settings.allowExt : []
+  const block = Array.isArray(settings.ignoreExt) ? settings.ignoreExt : []
+  if (ext && block.includes(ext)) return false
+  if (allow.length) return allow.includes(ext)
+  return true
 }
 
 function commaList(arr) {
@@ -414,6 +432,7 @@ globalThis.dlsrv = {
   hostOf,
   parseCommaList,
   commaList,
+  shouldInterceptExt,
   notify,
   setBadge,
   getPendingQueue,

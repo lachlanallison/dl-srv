@@ -71,15 +71,24 @@
       if (type === 'dlsrv-intercept-send') {
         await saveSettings({ lastCategory: category })
       }
-      ext.runtime
-        .sendMessage({
-          type,
-          id: pending.id,
-          category: type === 'dlsrv-intercept-send' ? category : undefined,
-        })
-        .catch(() => {})
-    } finally {
+      const res = await ext.runtime.sendMessage({
+        type,
+        id: pending.id,
+        category: type === 'dlsrv-intercept-send' ? category : undefined,
+      })
+      if (res?.error) {
+        closing = false
+        setBusy(false)
+        statusEl.textContent = res.error
+        statusEl.className = 'status err'
+        return
+      }
       window.close()
+    } catch (e) {
+      closing = false
+      setBusy(false)
+      statusEl.textContent = String(e.message || e)
+      statusEl.className = 'status err'
     }
   }
 

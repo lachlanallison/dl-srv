@@ -1,6 +1,6 @@
 # dl-srv extension — privacy policy
 
-Last updated: July 2026
+Last updated: September 2026
 
 ## Summary
 

@@ -9,7 +9,6 @@ use regex::Regex;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
-const SIMULATE_TIMEOUT: Duration = Duration::from_secs(60);
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
 const YTDLP_NETWORK_ARGS: &[&str] = &[
     "--socket-timeout",
@@ -149,29 +148,6 @@ impl YtdlpRunner {
         } else {
             msg
         })
-    }
-
-    pub async fn simulate(&self, url: &str) -> Result<bool> {
-        let mut child = Command::new(&self.binary)
-            .args(["--simulate", "--no-playlist"])
-            .args(YTDLP_NETWORK_ARGS)
-            .arg(url)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("spawn yt-dlp --simulate")?;
-
-        tokio::select! {
-            status = child.wait() => {
-                let status = status.context("wait yt-dlp --simulate")?;
-                Ok(status.success())
-            }
-            _ = tokio::time::sleep(SIMULATE_TIMEOUT) => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                Ok(false)
-            }
-        }
     }
 
     pub async fn download<F>(

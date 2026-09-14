@@ -17,6 +17,7 @@ const zipPath = path.join(distDir, 'dl-srv-firefox.zip')
 const include = [
   'background.js',
   'shared.js',
+  'magnet-click.js',
   'popup.js',
   'popup.html',
   'prompt.js',
@@ -25,6 +26,7 @@ const include = [
   'options.html',
   'PRIVACY.md',
   'icons/icon16.png',
+  'icons/icon32.png',
   'icons/icon48.png',
   'icons/icon128.png',
 ]
@@ -37,7 +39,7 @@ rmrf(staging)
 fs.mkdirSync(staging, { recursive: true })
 
 const manifest = JSON.parse(
-  fs.readFileSync(path.join(extDir, 'manifest.firefox.json'), 'utf8'),
+  fs.readFileSync(path.join(extDir, 'manifest.json'), 'utf8'),
 )
 fs.writeFileSync(path.join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 

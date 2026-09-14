@@ -98,7 +98,7 @@ See [extension/README.md](extension/README.md) for Chrome and Firefox install st
 
 - **`.torrent` file handling** — fetch and add via aria2
 
-- **Smarter video routing** — hostname list + yt-dlp simulate fallback
+- **Video routing** — yt-dlp for known video hosts (YouTube, etc.) or explicit force; everything else aria2
 
 
 

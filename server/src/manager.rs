@@ -69,16 +69,8 @@ impl Manager {
         Ok(())
     }
 
-    async fn ytdlp_runner(&self) -> YtdlpRunner {
-        let cfg = self.cfg.read().await;
-        YtdlpRunner {
-            binary: cfg.ytdlp_path.clone(),
-            ffmpeg_path: cfg.ffmpeg_path.clone(),
-            aria2_secret: cfg.aria2_rpc_secret.clone(),
-            use_aria2: true,
-            quality: cfg.ytdlp_quality.clone(),
-            cookies_file: cfg.ytdlp_cookies_file.clone(),
-        }
+    fn load_task(&self, id: &str) -> Result<Task> {
+        self.store.lock().unwrap().get_task(id)
     }
 
     pub fn start_background_tasks(self: &Arc<Self>) {
@@ -150,7 +142,7 @@ impl Manager {
         tokio::spawn(async move {
             if let Err(e) = this.start_task(task_id.clone(), input).await {
                 error!(task_id = %task_id, err = %e, "start task failed");
-                if let Ok(mut t) = this.store.lock().unwrap().get_task(&task_id) {
+                if let Ok(mut t) = this.load_task(&task_id) {
                     t.status = TaskStatus::Failed;
                     t.error = Some(e.to_string());
                     t.updated_at = Utc::now();
@@ -163,33 +155,15 @@ impl Manager {
     }
 
     async fn start_task(self: &Arc<Self>, task_id: String, input: AddTaskInput) -> Result<()> {
-        let runner = self.ytdlp_runner().await;
         let cookies = input
             .cookies
             .as_ref()
             .filter(|c| !c.trim().is_empty())
             .map(|c| c.trim().to_string());
 
-        let lower = input.url.trim().to_ascii_lowercase();
-        let mut task_type = router::classify_sync(&input.url, input.force_ytdlp);
-        let is_bt = lower.starts_with("magnet:") || is_torrent_url(&lower);
-        if task_type == TaskType::Aria2
-            && !router::skip_ytdlp_simulate(&lower)
-            && !router::is_direct_file_url(&lower)
-            && !is_bt
-        {
-            task_type = match tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                router::classify(&input.url, input.force_ytdlp, Some(&runner)),
-            )
-            .await
-            {
-                Ok(t) => t,
-                Err(_) => TaskType::Aria2,
-            };
-        }
+        let task_type = router::classify_sync(&input.url, input.force_ytdlp);
 
-        let mut task = self.store.lock().unwrap().get_task(&task_id)?;
+        let mut task = self.load_task(&task_id)?;
         if task.task_type != task_type {
             task.task_type = task_type;
             task.updated_at = Utc::now();
@@ -207,22 +181,7 @@ impl Manager {
 
         match task_type {
             TaskType::Aria2 => {
-                if let Err(e) = self.start_aria2_task(&mut task, cookies.clone()).await {
-                    if !router::skip_ytdlp_simulate(&lower)
-                        && !router::is_direct_file_url(&lower)
-                        && runner.simulate(&input.url).await.unwrap_or(false)
-                    {
-                        if let Some(c) = cookies {
-                            self.task_cookies.lock().unwrap().insert(task_id, c);
-                        }
-                        task.task_type = TaskType::Ytdlp;
-                        task.updated_at = Utc::now();
-                        self.save_and_emit(&task)?;
-                        self.spawn_ytdlp(task.id.clone());
-                    } else {
-                        return Err(e);
-                    }
-                }
+                self.start_aria2_task(&mut task, cookies).await?;
             }
             TaskType::Ytdlp => {
                 self.save_and_emit(&task)?;
@@ -238,7 +197,7 @@ impl Manager {
         tokio::spawn(async move {
             if let Err(e) = this.run_ytdlp(&task_id).await {
                 error!(task_id = %task_id, err = %e, "ytdlp job failed");
-                if let Ok(mut t) = this.store.lock().unwrap().get_task(&task_id) {
+                if let Ok(mut t) = this.load_task(&task_id) {
                     t.status = TaskStatus::Failed;
                     t.error = Some(e.to_string());
                     t.updated_at = Utc::now();
@@ -369,18 +328,19 @@ impl Manager {
                 Some(&registry),
                 Some(task_id),
                 move |p| {
-                    if let Ok(mut task) = this.store.lock().unwrap().get_task(&task_id_for_cb) {
-                        task.progress = p.percent;
-                        task.done_bytes = p.done_bytes;
-                        task.total_bytes = p.total_bytes;
-                        task.speed = p.speed;
-                        if let Some(name) = p.filename {
-                            task.filename = Some(name);
-                        }
-        task.updated_at = Utc::now();
-        let _ = this.save_and_emit(&task);
-    }
-},
+                    let Ok(mut task) = this.load_task(&task_id_for_cb) else {
+                        return;
+                    };
+                    task.progress = p.percent;
+                    task.done_bytes = p.done_bytes;
+                    task.total_bytes = p.total_bytes;
+                    task.speed = p.speed;
+                    if let Some(name) = p.filename {
+                        task.filename = Some(name);
+                    }
+                    task.updated_at = Utc::now();
+                    let _ = this.save_and_emit(&task);
+                },
             )
             .await?;
 
@@ -584,23 +544,6 @@ impl Manager {
                     url = %log_url(&task.url),
                     "download failed"
                 );
-                let lower = task.url.trim().to_ascii_lowercase();
-                if lower.starts_with("magnet:") || is_torrent_url(&lower) {
-                    continue;
-                }
-                if router::skip_ytdlp_simulate(&lower) {
-                    continue;
-                }
-                let runner = self.ytdlp_runner().await;
-                if runner.simulate(&task.url).await.unwrap_or(false) {
-                    task.task_type = TaskType::Ytdlp;
-                    task.status = TaskStatus::Pending;
-                    task.error = None;
-                    task.backend_gid = None;
-                    task.updated_at = Utc::now();
-                    self.save_and_emit(&task)?;
-                    self.spawn_ytdlp(task.id.clone());
-                }
             }
         }
 

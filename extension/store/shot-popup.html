@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>dl-srv popup</title>
+    <link rel="stylesheet" href="shot.css" />
+  </head>
+  <body>
+    <div class="stage">
+      <div class="window">
+        <div class="chrome">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="tabs">
+            <div class="tab">Example series — episode list</div>
+          </div>
+          <div class="urlbar">
+            <span>https://example.com/shows/the-expanse</span>
+            <span class="right">
+              <img src="icon128.png" alt="" />
+            </span>
+          </div>
+        </div>
+        <div class="page">
+          <div class="page-fill">
+            <h2>The Expanse — S04</h2>
+            <p>Episode 1 · 1080p · 1.8 GB</p>
+            <p>Episode 2 · 1080p · 1.9 GB</p>
+            <p>Episode 3 · 1080p · 2.1 GB</p>
+          </div>
+          <div class="card popup">
+            <strong>dl-srv</strong>
+            <p class="muted">Connected · http://192.168.1.99:35778</p>
+            <label for="category">Category</label>
+            <select id="category">
+              <option>tv</option>
+              <option selected>movies</option>
+              <option>inbox</option>
+              <option>music</option>
+            </select>
+            <button class="primary">Send current tab URL</button>
+            <button>Open web UI</button>
+            <button>Extension settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

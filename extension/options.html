@@ -53,8 +53,14 @@
       <input id="minSize" type="text" value="0" />
     </label>
     <label>
-      Ignore extensions (comma-separated)
+      Allow extensions (comma-separated, empty = all types)
+      <input id="allowExt" type="text" placeholder="mkv, mp4, pdf, zip" />
+      <div class="hint">If set, only these types are intercepted. Leave empty to intercept everything except the block list.</div>
+    </label>
+    <label>
+      Block extensions (comma-separated)
       <input id="ignoreExt" type="text" placeholder="html, htm, txt, css, js, json" />
+      <div class="hint">Never intercept these types (block list wins over allow list).</div>
     </label>
     <label>
       Ignore domains (comma-separated)

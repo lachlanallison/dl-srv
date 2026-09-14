@@ -39,6 +39,7 @@
       askOnIntercept: document.getElementById('askOnIntercept').checked,
       autoForceYtdlp: document.getElementById('autoForceYtdlp').checked,
       minSize: parseInt(document.getElementById('minSize').value, 10) || 0,
+      allowExt: parseCommaList(document.getElementById('allowExt').value),
       ignoreExt: parseCommaList(document.getElementById('ignoreExt').value),
       ignoreDomains: parseCommaList(document.getElementById('ignoreDomains').value),
       debugEnabled: document.getElementById('debugEnabled').checked,
@@ -56,6 +57,7 @@
     document.getElementById('askOnIntercept').checked = data.askOnIntercept !== false
     document.getElementById('autoForceYtdlp').checked = !!data.autoForceYtdlp
     document.getElementById('minSize').value = data.minSize ?? 0
+    document.getElementById('allowExt').value = commaList(data.allowExt)
     document.getElementById('ignoreExt').value = commaList(data.ignoreExt)
     document.getElementById('ignoreDomains').value = commaList(data.ignoreDomains)
     document.getElementById('debugEnabled').checked = data.debugEnabled !== false

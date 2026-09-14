@@ -3,8 +3,10 @@ build-amo.mjs
 package.json
 package-lock.json
 manifest.chromium.json
+manifest.firefox.json
 icons/gen.py
 AMO_SUBMISSION.md
 README.md
+store/
 dist/
 node_modules/

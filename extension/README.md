@@ -42,7 +42,8 @@ Open extension **Options** (right-click toolbar icon → Options):
 | Ask category when intercepting | Category prompt on each intercept |
 | Auto force yt-dlp | Use yt-dlp for intercepted links |
 | Min file size | Skip files smaller than N bytes |
-| Ignore extensions | Comma list, e.g. `html, htm, txt` |
+| Allow extensions | If set, only intercept these types (e.g. `mkv, mp4, pdf`). Empty = all types |
+| Block extensions | Never intercept these types (e.g. `html, htm, txt`). Wins over allow list |
 | Ignore domains | Comma list of hostnames to skip |
 
 ## Popup
@@ -54,7 +55,7 @@ Open extension **Options** (right-click toolbar icon → Options):
 ## Context menu
 
 - Right-click a link → **Download on NAS (dl-srv)**
-- Right-click a page → **Download page on NAS (video)** (forces yt-dlp)
+- Right-click a page → **Send this page URL to NAS** (sends the tab URL; use intercept for download buttons that are not links)
 
 ## Icons
 
