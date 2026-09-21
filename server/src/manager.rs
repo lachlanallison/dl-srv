@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -11,6 +12,7 @@ use tracing::{error, info, warn};
 use crate::aria2::{self, AddOptions, Aria2Client};
 use crate::config::{self, Config};
 use crate::hooks;
+use crate::organize::{Organizer, ScanResult};
 use crate::router;
 use crate::store::{AddTaskInput, Store, Task, TaskStatus, TaskType};
 use crate::version::VersionChecker;
@@ -38,6 +40,7 @@ pub struct Manager {
     version_checker: Arc<VersionChecker>,
     ytdlp_jobs: Arc<YtdlpJobRegistry>,
     task_cookies: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    organizer: OnceLock<Arc<Organizer>>,
 }
 
 impl Manager {
@@ -56,6 +59,7 @@ impl Manager {
             version_checker,
             ytdlp_jobs: Arc::new(YtdlpJobRegistry::new()),
             task_cookies: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            organizer: OnceLock::new(),
         })
     }
 
@@ -95,6 +99,14 @@ impl Manager {
 
     pub fn store(&self) -> Arc<std::sync::Mutex<Store>> {
         self.store.clone()
+    }
+
+    pub fn aria2(&self) -> Aria2Client {
+        self.aria2.clone()
+    }
+
+    pub fn set_organizer(&self, organizer: Arc<Organizer>) {
+        let _ = self.organizer.set(organizer);
     }
 
     pub fn version_checker(&self) -> Arc<VersionChecker> {
@@ -358,7 +370,9 @@ impl Manager {
         );
 
         let cfg = self.cfg.read().await;
-        hooks::on_task_completed(&cfg, &task).await;
+        let result = hooks::on_task_completed(&cfg, &task, self.organizer.get().map(|o| o.as_ref())).await;
+        drop(cfg);
+        self.apply_organize_result(&task.id, &result);
         Ok(())
     }
 
@@ -534,7 +548,11 @@ impl Manager {
                     "download completed"
                 );
                 let cfg = self.cfg.read().await;
-                hooks::on_task_completed(&cfg, &task).await;
+                let result =
+                    hooks::on_task_completed(&cfg, &task, self.organizer.get().map(|o| o.as_ref()))
+                        .await;
+                drop(cfg);
+                self.apply_organize_result(&task.id, &result);
             }
 
             if task.status == TaskStatus::Failed && prev_status != TaskStatus::Failed {
@@ -664,6 +682,34 @@ impl Manager {
         self.version_checker.invalidate().await;
         info!(message = %msg, "yt-dlp updated");
         Ok(msg)
+    }
+
+    fn apply_organize_result(&self, task_id: &str, result: &ScanResult) {
+        if result.dry_run {
+            return;
+        }
+        let dest = result.items.iter().find_map(|item| {
+            if item.action == "moved" {
+                item.to.as_deref()
+            } else {
+                None
+            }
+        });
+        let Some(dest) = dest else {
+            return;
+        };
+        let dest = Path::new(dest);
+        let Ok(mut task) = self.load_task(task_id) else {
+            return;
+        };
+        task.filename = dest
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned());
+        task.save_path = dest
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned());
+        task.updated_at = Utc::now();
+        let _ = self.save_and_emit(&task);
     }
 }
 

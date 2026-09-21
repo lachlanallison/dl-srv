@@ -35,6 +35,13 @@ pub struct Config {
     pub max_upload_kbps: u32,
     /// KiB/s; 0 = unlimited.
     pub max_download_kbps: u32,
+    pub organize_enabled: bool,
+    pub tmdb_api_key: String,
+    pub organize_movies_dir: String,
+    pub organize_tv_dir: String,
+    /// 0 = complete-hook only, no interval scan.
+    pub organize_scan_secs: u64,
+    pub organize_dry_run: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -58,6 +65,12 @@ struct FileConfig {
     bt_max_peers: Option<u32>,
     max_upload_kbps: Option<u32>,
     max_download_kbps: Option<u32>,
+    organize_enabled: Option<bool>,
+    tmdb_api_key: Option<String>,
+    organize_movies_dir: Option<String>,
+    organize_tv_dir: Option<String>,
+    organize_scan_secs: Option<u64>,
+    organize_dry_run: Option<bool>,
 }
 
 impl Config {
@@ -87,6 +100,12 @@ impl Config {
             bt_max_peers: 55,
             max_upload_kbps: 0,
             max_download_kbps: 0,
+            organize_enabled: false,
+            tmdb_api_key: String::new(),
+            organize_movies_dir: "movies".into(),
+            organize_tv_dir: "tv".into(),
+            organize_scan_secs: 900,
+            organize_dry_run: false,
         };
 
         fs::create_dir_all(&cfg.config_dir).context("create config dir")?;
@@ -149,6 +168,24 @@ impl Config {
             if let Some(v) = fc.max_download_kbps {
                 cfg.max_download_kbps = v;
             }
+            if let Some(v) = fc.organize_enabled {
+                cfg.organize_enabled = v;
+            }
+            if let Some(v) = fc.tmdb_api_key {
+                cfg.tmdb_api_key = v;
+            }
+            if let Some(v) = fc.organize_movies_dir {
+                cfg.organize_movies_dir = folder_component(&v, "movies");
+            }
+            if let Some(v) = fc.organize_tv_dir {
+                cfg.organize_tv_dir = folder_component(&v, "tv");
+            }
+            if let Some(v) = fc.organize_scan_secs {
+                cfg.organize_scan_secs = v;
+            }
+            if let Some(v) = fc.organize_dry_run {
+                cfg.organize_dry_run = v;
+            }
         }
 
         let custom_ytdlp = cfg.config_dir.join("bin").join("yt-dlp");
@@ -189,6 +226,12 @@ impl Config {
             bt_max_peers: Some(self.bt_max_peers),
             max_upload_kbps: Some(self.max_upload_kbps),
             max_download_kbps: Some(self.max_download_kbps),
+            organize_enabled: Some(self.organize_enabled),
+            tmdb_api_key: Some(self.tmdb_api_key.clone()),
+            organize_movies_dir: Some(self.organize_movies_dir.clone()),
+            organize_tv_dir: Some(self.organize_tv_dir.clone()),
+            organize_scan_secs: Some(self.organize_scan_secs),
+            organize_dry_run: Some(self.organize_dry_run),
         };
         let data = serde_json::to_string_pretty(&fc)?;
         fs::write(self.config_dir.join("config.json"), data)?;
@@ -225,6 +268,15 @@ fn env_or(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| fallback.to_string())
 }
 
+pub(crate) fn folder_component(s: &str, fallback: &str) -> String {
+    let t = s.trim().trim_matches(['/', '\\']);
+    if t.is_empty() || t.contains('/') || t.contains('\\') || t == "." || t == ".." {
+        fallback.to_string()
+    } else {
+        t.to_string()
+    }
+}
+
 fn random_token() -> String {
     let mut bytes = [0u8; 24];
     rand::thread_rng().fill_bytes(&mut bytes);
@@ -252,6 +304,13 @@ pub fn settings_public(cfg: &Config) -> serde_json::Value {
         "bt_max_peers": cfg.bt_max_peers,
         "max_upload_kbps": cfg.max_upload_kbps,
         "max_download_kbps": cfg.max_download_kbps,
+        "organize_enabled": cfg.organize_enabled,
+        "tmdb_api_key": cfg.tmdb_api_key,
+        "has_tmdb_key": !cfg.tmdb_api_key.trim().is_empty(),
+        "organize_movies_dir": cfg.organize_movies_dir,
+        "organize_tv_dir": cfg.organize_tv_dir,
+        "organize_scan_secs": cfg.organize_scan_secs,
+        "organize_dry_run": cfg.organize_dry_run,
     });
     if !cfg.setup_complete {
         if let Some(map) = obj.as_object_mut() {

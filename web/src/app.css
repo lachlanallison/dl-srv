@@ -90,6 +90,18 @@ button.primary {
 
 
 
+button:disabled,
+
+input:disabled {
+
+  opacity: 0.5;
+
+  cursor: not-allowed;
+
+}
+
+
+
 button.danger {
 
   color: var(--err);

@@ -3,6 +3,7 @@
   const statusEl = document.getElementById('status')
   const sendNasBtn = document.getElementById('sendNas')
   const sendBrowserBtn = document.getElementById('sendBrowser')
+  const cancelBtn = document.getElementById('cancel')
   const categorySelect = document.getElementById('category')
   const categoryCustom = document.getElementById('categoryCustom')
 
@@ -53,6 +54,7 @@
   function setBusy(busy) {
     sendNasBtn.disabled = busy
     sendBrowserBtn.disabled = busy
+    cancelBtn.disabled = busy
   }
 
   function closePrompt() {
@@ -64,7 +66,10 @@
     if (!pending) return
     setBusy(true)
     closing = true
-    statusEl.textContent = type === 'dlsrv-intercept-send' ? 'Sending…' : 'Starting browser download…'
+    statusEl.textContent =
+      type === 'dlsrv-intercept-send' ? 'Sending…'
+      : type === 'dlsrv-intercept-cancel' ? 'Cancelling…'
+      : 'Starting browser download…'
     statusEl.className = 'status'
     try {
       const category = selectedCategory()
@@ -95,6 +100,7 @@
   categorySelect.addEventListener('change', syncCustomField)
   sendNasBtn.addEventListener('click', () => act('dlsrv-intercept-send'))
   sendBrowserBtn.addEventListener('click', () => act('dlsrv-intercept-browser'))
+  cancelBtn.addEventListener('click', () => act('dlsrv-intercept-cancel'))
 
   window.addEventListener('beforeunload', () => {
     if (closing || !pending) return

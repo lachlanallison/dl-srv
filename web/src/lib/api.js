@@ -61,6 +61,9 @@ export const api = {
   settings: () => request('/settings'),
   updateSettings: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   regenerateToken: () => request('/settings/regenerate-token', { method: 'POST' }),
+  libraryScan: (full = false) =>
+    request('/library/scan', { method: 'POST', body: JSON.stringify({ full }) }),
+  libraryStatus: () => request('/library/status'),
   updateYtdlp: () => request('/binaries/ytdlp/update', { method: 'POST' }),
 
   listRssFeeds: () => request('/rss/feeds'),

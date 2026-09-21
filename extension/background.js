@@ -100,6 +100,16 @@
     return total - received <= 65536 || received / total >= 0.95
   }
 
+  /** No Content-Length yet and not much data — typical generated/session PDF. Don't pause. */
+  function downloadUnknownAndSmall(item) {
+    if (downloadTotalBytes(item)) return false
+    return (Number(item.bytesReceived) || 0) < 1024 * 1024
+  }
+
+  function leaveDownloadInBrowser(item) {
+    return downloadFullyReceived(item) || downloadNearlyDone(item) || downloadUnknownAndSmall(item)
+  }
+
   async function releasePendingToBrowser(pending) {
     if (pending.url.startsWith('magnet:')) {
       markBypass(pending.url)
@@ -251,8 +261,8 @@
     if (item.state === 'interrupted') {
       const looksPaused = received > 0 && (pausing || item.paused || item.canResume)
       if (looksPaused) {
-        if (downloadFullyReceived(item) || downloadNearlyDone(item)) {
-          await log('info', 'skip intercept: pause hit an already-finished download — resuming', snapshotDownload(item))
+        if (leaveDownloadInBrowser(item)) {
+          await log('info', 'skip intercept: pause hit a small or finished download — resuming', snapshotDownload(item))
           stopWatching(item.id)
           await ext.downloads.resume(item.id).catch(() => {})
           return
@@ -273,6 +283,7 @@
       stopWatching(item.id)
       return
     }
+    if (downloadUnknownAndSmall(item)) return
 
     pausingIds.add(item.id)
     meta.wePaused = true
@@ -290,8 +301,8 @@
 
     const [paused] = await ext.downloads.search({ id: item.id }).catch(() => [])
     const current = paused || item
-    if (downloadFullyReceived(current)) {
-      await log('info', 'skip intercept: pause hit an already-finished download — resuming', snapshotDownload(current))
+    if (leaveDownloadInBrowser(current)) {
+      await log('info', 'skip intercept: pause hit a small or finished download — resuming', snapshotDownload(current))
       stopWatching(item.id)
       await ext.downloads.resume(item.id).catch(() => {})
       return
@@ -398,7 +409,7 @@
       url,
       type: 'popup',
       width: 380,
-      height: 340,
+      height: 390,
       focused: true,
     })
     promptWindowId = win.id
@@ -715,6 +726,18 @@
         await releasePendingToBrowser(pending)
         finishingPendingId = null
         await showNextPrompt()
+      })()
+      return true
+    }
+
+    if (msg.type === 'dlsrv-intercept-cancel') {
+      ;(async () => {
+        sendResponse(
+          await finishPending(msg.id, async (pending) => {
+            await cancelHeldDownload(pending)
+            if (pending.downloadId != null) heldDownloadIds.delete(pending.downloadId)
+          }),
+        )
       })()
       return true
     }

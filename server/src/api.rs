@@ -18,6 +18,7 @@ use tokio_stream::StreamExt;
 
 use crate::config::{self, Config};
 use crate::manager::Manager;
+use crate::organize::{Organizer, ScanError};
 use crate::store::{AddTaskInput, RssFeed, Task};
 use crate::version::HealthReport;
 
@@ -27,6 +28,7 @@ pub struct AppState {
     pub manager: Arc<Manager>,
     pub events: tokio::sync::broadcast::Sender<Task>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
+    pub organizer: Arc<Organizer>,
 }
 
 pub struct RateLimiter {
@@ -67,6 +69,8 @@ pub fn routes(state: AppState) -> Router {
         .route("/tasks/{id}/resume", post(resume_task))
         .route("/settings", get(get_settings).put(update_settings))
         .route("/settings/regenerate-token", post(regenerate_token))
+        .route("/library/scan", post(library_scan))
+        .route("/library/status", get(library_status))
         .route("/setup", post(post_setup))
         .route("/binaries/ytdlp/update", post(update_ytdlp))
         .route("/rss/feeds", get(list_rss_feeds).post(create_rss_feed))
@@ -329,6 +333,7 @@ async fn post_setup(
             bt_max_peers: body.bt_max_peers,
             max_upload_kbps: body.max_upload_kbps,
             max_download_kbps: body.max_download_kbps,
+            ..Default::default()
         });
         if let Some(t) = body.token {
             if !t.is_empty() {
@@ -342,7 +347,7 @@ async fn post_setup(
     Ok(get_settings(State(state)).await)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct UpdateSettingsBody {
     default_category: Option<String>,
     ytdlp_path: Option<String>,
@@ -361,6 +366,12 @@ struct UpdateSettingsBody {
     bt_max_peers: Option<u32>,
     max_upload_kbps: Option<u32>,
     max_download_kbps: Option<u32>,
+    organize_enabled: Option<bool>,
+    tmdb_api_key: Option<String>,
+    organize_movies_dir: Option<String>,
+    organize_tv_dir: Option<String>,
+    organize_scan_secs: Option<u64>,
+    organize_dry_run: Option<bool>,
 }
 
 fn apply_settings(cfg: &mut Config, body: &UpdateSettingsBody) {
@@ -415,6 +426,24 @@ fn apply_settings(cfg: &mut Config, body: &UpdateSettingsBody) {
     if let Some(v) = body.max_download_kbps {
         cfg.max_download_kbps = v;
     }
+    if let Some(v) = body.organize_enabled {
+        cfg.organize_enabled = v;
+    }
+    if let Some(v) = &body.tmdb_api_key {
+        cfg.tmdb_api_key = v.clone();
+    }
+    if let Some(v) = &body.organize_movies_dir {
+        cfg.organize_movies_dir = config::folder_component(v, "movies");
+    }
+    if let Some(v) = &body.organize_tv_dir {
+        cfg.organize_tv_dir = config::folder_component(v, "tv");
+    }
+    if let Some(v) = body.organize_scan_secs {
+        cfg.organize_scan_secs = v;
+    }
+    if let Some(v) = body.organize_dry_run {
+        cfg.organize_dry_run = v;
+    }
 }
 
 async fn update_settings(
@@ -447,6 +476,34 @@ async fn regenerate_token(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
     Ok(Json(RegenerateTokenResponse { token }))
+}
+
+#[derive(Deserialize, Default)]
+struct LibraryScanBody {
+    #[serde(default)]
+    full: bool,
+}
+
+async fn library_scan(
+    State(state): State<AppState>,
+    body: Option<Json<LibraryScanBody>>,
+) -> Result<Json<crate::organize::ScanResult>, (StatusCode, Json<serde_json::Value>)> {
+    let full = body.map(|b| b.0.full).unwrap_or(false);
+    match state.organizer.scan(full).await {
+        Ok(result) => Ok(Json(result)),
+        Err(ScanError::Disabled) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": ScanError::Disabled.message() })),
+        )),
+        Err(ScanError::NoTmdbKey) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": ScanError::NoTmdbKey.message() })),
+        )),
+    }
+}
+
+async fn library_status(State(state): State<AppState>) -> Json<crate::organize::LibraryStatus> {
+    Json(state.organizer.status().await)
 }
 
 #[derive(Serialize)]

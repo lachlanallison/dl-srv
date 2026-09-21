@@ -88,6 +88,14 @@
 
   let regenerating = false
 
+  let settingsInner = 'general'
+
+  let libraryScanning = false
+
+  let libraryFull = false
+
+  let libraryScanResult = null
+
 
 
   // RSS form
@@ -253,6 +261,18 @@
       max_upload_kbps: settings.max_upload_kbps ?? 0,
 
       max_download_kbps: settings.max_download_kbps ?? 0,
+
+      organize_enabled: !!settings.organize_enabled,
+
+      tmdb_api_key: settings.tmdb_api_key || '',
+
+      organize_movies_dir: settings.organize_movies_dir || 'movies',
+
+      organize_tv_dir: settings.organize_tv_dir || 'tv',
+
+      organize_scan_secs: settings.organize_scan_secs ?? 900,
+
+      organize_dry_run: !!settings.organize_dry_run,
 
     }
 
@@ -520,6 +540,18 @@
 
         max_download_kbps: Number(settingsForm.max_download_kbps),
 
+        organize_enabled: !!settingsForm.organize_enabled,
+
+        tmdb_api_key: settingsForm.tmdb_api_key || '',
+
+        organize_movies_dir: settingsForm.organize_movies_dir,
+
+        organize_tv_dir: settingsForm.organize_tv_dir,
+
+        organize_scan_secs: Number(settingsForm.organize_scan_secs),
+
+        organize_dry_run: !!settingsForm.organize_dry_run,
+
       })
 
       syncSettingsForm()
@@ -531,6 +563,62 @@
     } finally {
 
       settingsSaving = false
+
+    }
+
+  }
+
+
+
+  async function loadLibraryStatus() {
+
+    try {
+
+      const st = await api.libraryStatus()
+
+      if (st?.last_result) {
+
+        libraryScanResult = {
+
+          moved: st.last_result.moved,
+
+          skipped: st.last_result.skipped,
+
+          dry_run: false,
+
+          items: st.last_result.items || [],
+
+        }
+
+      }
+
+    } catch {
+
+      /* ignore */
+
+    }
+
+  }
+
+
+
+  async function scanLibrary() {
+
+    libraryScanning = true
+
+    setError('')
+
+    try {
+
+      libraryScanResult = await api.libraryScan(libraryFull)
+
+    } catch (e) {
+
+      setError(e)
+
+    } finally {
+
+      libraryScanning = false
 
     }
 
@@ -710,6 +798,12 @@
 
     }
 
+    if (t === 'settings') {
+
+      loadLibraryStatus()
+
+    }
+
   }
 
 
@@ -834,7 +928,7 @@
 
           <li>Open extension options → paste the server URL and API token above</li>
 
-          <li>Set a default category (e.g. <code>movies</code>, <code>tv</code>) to match your library folders</li>
+          <li>Set the default category to <code>inbox</code> unless you want a download to skip the organiser</li>
 
         </ol>
 
@@ -1058,7 +1152,17 @@
 
     {:else if tab === 'settings'}
 
+      <div class="tabs">
+
+        <button class:active={settingsInner === 'general'} onclick={() => (settingsInner = 'general')}>General</button>
+
+        <button class:active={settingsInner === 'library'} onclick={() => (settingsInner = 'library')}>Library</button>
+
+      </div>
+
       <div class="panel grid">
+
+        {#if settingsInner === 'general'}
 
         <label>
 
@@ -1205,6 +1309,116 @@
         {#if health?.dlsrv_version}
 
           <p class="muted" style="margin: 0">Running dl-srv {health.dlsrv_version}</p>
+
+        {/if}
+
+        {:else}
+
+        <label class="row check-row">
+
+          <input type="checkbox" bind:checked={settingsForm.organize_enabled} disabled={!(settingsForm.tmdb_api_key || '').trim()} />
+
+          <span>Enable library organiser</span>
+
+        </label>
+
+        {#if !(settingsForm.tmdb_api_key || '').trim()}
+
+          <div class="muted">Add a TMDB API key to enable.</div>
+
+        {/if}
+
+        <label>
+
+          <div class="muted">TMDB API key</div>
+
+          <input type="password" bind:value={settingsForm.tmdb_api_key} autocomplete="off" />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Movies folder name</div>
+
+          <input bind:value={settingsForm.organize_movies_dir} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">TV folder name</div>
+
+          <input bind:value={settingsForm.organize_tv_dir} />
+
+        </label>
+
+        <label>
+
+          <div class="muted">Scan interval seconds (0 = only on download complete)</div>
+
+          <input type="number" min="0" step="1" bind:value={settingsForm.organize_scan_secs} />
+
+        </label>
+
+        <label class="row check-row">
+
+          <input type="checkbox" bind:checked={settingsForm.organize_dry_run} />
+
+          <span>Dry run (log intended moves, do not rename)</span>
+
+        </label>
+
+        <p class="muted" style="margin: 0">Leftover files stay in inbox/. Point Jellyfin at movies/ and tv/ — not inbox.</p>
+
+        <label class="row check-row">
+
+          <input type="checkbox" bind:checked={libraryFull} />
+
+          <span>Rescan already-organised files</span>
+
+        </label>
+
+        <div class="muted">Hits TMDB for every video already in movies/ and tv/. Does not overwrite a file that already exists at the destination.</div>
+
+        <div class="row">
+
+          <button class="primary" disabled={settingsSaving} onclick={saveSettings}>
+
+            {settingsSaving ? 'Saving…' : 'Save settings'}
+
+          </button>
+
+          <button disabled={libraryScanning || !settingsForm.organize_enabled || !(settingsForm.tmdb_api_key || '').trim()} onclick={scanLibrary}>
+
+            {libraryScanning ? 'Scanning…' : 'Scan now'}
+
+          </button>
+
+        </div>
+
+        {#if libraryScanResult}
+
+          <div class="muted">Moved {libraryScanResult.moved}, skipped {libraryScanResult.skipped}{#if libraryScanResult.dry_run} (dry run){/if}</div>
+
+          {#if libraryScanResult.items?.length}
+
+            <ul class="origin-list">
+
+              {#each libraryScanResult.items as item}
+
+                <li class="mono">
+
+                  {item.action}: {item.from}{#if item.to} → {item.to}{/if}{#if item.reason} ({item.reason}){/if}
+
+                </li>
+
+              {/each}
+
+            </ul>
+
+          {/if}
+
+        {/if}
 
         {/if}
 

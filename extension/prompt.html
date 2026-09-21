@@ -12,6 +12,7 @@
       button { width: 100%; margin-top: 0.5rem; padding: 0.45rem; cursor: pointer; }
       button.primary { font-weight: 600; }
       button.secondary { background: #f3f4f6; border: 1px solid #d1d5db; }
+      button.cancel { background: #fff; border: 1px solid #d1d5db; color: #6b7280; }
       .status { color: #666; font-size: 0.85rem; min-height: 1.2em; margin-top: 0.35rem; }
       .err { color: #b91c1c; }
     </style>
@@ -30,6 +31,7 @@
     <input id="categoryCustom" type="text" placeholder="folder name" hidden />
     <button id="sendNas" class="primary">Send to NAS</button>
     <button id="sendBrowser" class="secondary">Download in browser instead</button>
+    <button id="cancel" class="cancel">Cancel download</button>
     <p class="status" id="status"></p>
     <script src="shared.js"></script>
     <script src="prompt.js"></script>

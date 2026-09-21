@@ -4,6 +4,7 @@ mod config;
 mod filename;
 mod hooks;
 mod manager;
+mod organize;
 mod qbit;
 mod router;
 mod rss;
@@ -28,6 +29,7 @@ use crate::api::{AppState, RateLimiter};
 use crate::aria2::Aria2Client;
 use crate::config::Config;
 use crate::manager::Manager;
+use crate::organize::Organizer;
 use crate::qbit::QbitState;
 use crate::rss::RssPoller;
 use crate::store::Store;
@@ -65,9 +67,12 @@ pub async fn run() -> anyhow::Result<()> {
         events.clone(),
         version_checker,
     );
-    manager.start_background_tasks();
-
     let store_arc = manager.store();
+    let organizer = Organizer::new(cfg.clone(), store_arc.clone(), manager.aria2());
+    manager.set_organizer(organizer.clone());
+    manager.start_background_tasks();
+    organizer.clone().start();
+
     let rss_poller = Arc::new(RssPoller::new(manager.clone(), store_arc));
     rss_poller.start();
 
@@ -76,6 +81,7 @@ pub async fn run() -> anyhow::Result<()> {
         manager: manager.clone(),
         events,
         rate_limiter: Arc::new(tokio::sync::Mutex::new(RateLimiter::new(rate_limit))),
+        organizer,
     };
 
     let qbit_state = QbitState {

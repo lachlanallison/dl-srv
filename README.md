@@ -78,7 +78,7 @@ See [extension/README.md](extension/README.md) for Chrome and Firefox install st
 
 2. Options → **Server URL** + **API token** from setup
 
-3. Set **default category** to match library folders (`movies`, `tv`, …)
+3. Leave **default category** as `inbox` (the organiser moves finished videos into `movies/` and `tv/`)
 
 4. Browse — downloads go to the NAS instead of your PC
 
@@ -111,6 +111,8 @@ See [extension/README.md](extension/README.md) for Chrome and Firefox install st
 - **Cookies file** — Netscape cookies path for age-gated sites
 
 - **Webhooks + Jellyfin refresh** — POST on complete, optional library scan URL
+
+- **Library organiser** — filename + TMDB rename into `movies/` and `tv/` (off by default)
 
 - **Queue filters** — all / active / completed / failed
 
@@ -175,6 +177,21 @@ Web UI → **RSS** tab:
 - New items matching the regex are queued automatically
 
 - Duplicates are skipped by GUID
+
+
+
+## Library organiser
+
+Settings → **Library**. Off until you turn it on and add a TMDB API key.
+
+When a download finishes (and on an optional interval / Scan now), dl-srv parses the filename, looks up TMDB, and renames into Jellyfin folders:
+
+- Movies: `movies/{Title} ({Year})/{Title} ({Year)}.mkv`
+- TV: `tv/{Show} ({Year})/Season {SS}/{Show} - S{SS}E{EE} - {Episode}.mkv`
+
+If the name is ambiguous or TMDB is unsure, the file stays put. Seeding torrents are not moved. Leftovers stay in `inbox/` — do not add `inbox` as a Jellyfin library.
+
+Dry run logs intended destinations without renaming. Jellyfin refresh (if configured) runs only after a real move.
 
 
 
@@ -270,13 +287,17 @@ Most routes under `/api/v1` require `Authorization: Bearer <token>` or `X-Api-To
 
 | `POST /settings/regenerate-token` | New API token |
 
+| `POST /library/scan` | Organise `inbox/`, `movies/`, `tv/` (`{ "full": true }` to include already-organised files) |
+
+| `GET /library/status` | Organiser enabled flag + last scan summary |
+
 | `GET/POST /rss/feeds`, `DELETE /rss/feeds/{id}` | RSS management |
 
 | `POST /binaries/ytdlp/update` | Run `yt-dlp -U` |
 
 
 
-Downloads land in `DOWNLOAD_DIR/<category>/` (default category: `inbox`). On TrueNAS, point `DOWNLOAD_DIR` at your media root so categories match library folders (`movies`, `tv`, …).
+Downloads land in `DOWNLOAD_DIR/<category>/` (default category: `inbox`). On TrueNAS, point `DOWNLOAD_DIR` at your media root. Jellyfin should scan `movies/` and `tv/` only — not `inbox/`.
 
 ## License
 
